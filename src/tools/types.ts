@@ -1,7 +1,7 @@
 import type * as Y from 'yjs'
 import type { Anchor, Dir, EdgeStyleKind, Node, NodeId, Point, Rect } from '../types'
 
-export type Part = 'body' | 'edge' | 'handle' | 'scrubber'
+export type Part = 'body' | 'edge' | 'handle' | 'scrubber' | 'resize'
 
 /**
  * `dir` is set only for parts that have a side — today that means spawn

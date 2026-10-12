@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { Point } from '../types'
-import { RIBBON_END_W, RIBBON_START_W, ribbonPath, sampleCenterline } from './ribbon'
+import {
+  ARROW_HEAD_W,
+  ARROW_LINE_W,
+  RIBBON_END_W,
+  RIBBON_START_W,
+  arrowPath,
+  connectorPath,
+  ribbonPath,
+  sampleCenterline,
+} from './ribbon'
 
 /** "M 1 2 L 3 4 Z" -> [[1,2],[3,4]] */
 const points = (d: string): Point[] =>
@@ -169,5 +178,48 @@ describe('ribbonPath', () => {
     const pts = points(d)
     expect(Math.abs(pts[0]!.y - pts[pts.length - 1]!.y)).toBeCloseTo(RIBBON_START_W, 5)
     expect(Math.abs(pts[4]!.y - pts[5]!.y)).toBeCloseTo(RIBBON_END_W, 5)
+  })
+})
+
+describe('arrowPath', () => {
+  const coords = (d: string) =>
+    [...d.matchAll(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g)].map((m) => ({ x: +m[1]!, y: +m[2]! }))
+
+  it('ends in a head whose point is the connector`s end', () => {
+    const d = arrowPath([{ x: 0, y: 0 }, { x: 200, y: 0 }], 'straight')
+    const pts = coords(d)
+    // Nothing is painted past the target.
+    expect(Math.max(...pts.map((p) => p.x))).toBe(200)
+    expect(d).toContain('M 200 0')
+  })
+
+  it('keeps the line thin and even, with a wider head', () => {
+    const pts = coords(arrowPath([{ x: 0, y: 0 }, { x: 200, y: 0 }], 'straight'))
+    const nearStart = pts.filter((p) => p.x < 1)
+    expect(Math.max(...nearStart.map((p) => Math.abs(p.y)))).toBeCloseTo(ARROW_LINE_W / 2)
+    expect(Math.max(...pts.map((p) => Math.abs(p.y)))).toBeCloseTo(ARROW_HEAD_W / 2)
+  })
+
+  it('shrinks the head on a very short connector instead of overrunning it', () => {
+    const pts = coords(arrowPath([{ x: 0, y: 0 }, { x: 10, y: 0 }], 'straight'))
+    expect(Math.min(...pts.map((p) => p.x))).toBeGreaterThanOrEqual(0)
+  })
+
+  it('routes as a curve', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 80, y: 0 }, { x: 120, y: 200 }, { x: 200, y: 200 }]
+    expect(arrowPath(pts, 'arrow')).not.toBe(arrowPath(pts, 'straight'))
+  })
+})
+
+describe('connectorPath', () => {
+  const pts = [{ x: 0, y: 0 }, { x: 200, y: 0 }]
+  it('paints arrow as an arrow and everything else as a ribbon', () => {
+    expect(connectorPath(pts, 'arrow')).toBe(arrowPath(pts, 'arrow'))
+    expect(connectorPath(pts, 'straight')).toBe(ribbonPath(pts, 'straight'))
+  })
+  it('scales widths for screen-space painters', () => {
+    expect(connectorPath(pts, 'straight', 2)).toBe(
+      ribbonPath(pts, 'straight', RIBBON_START_W * 2, RIBBON_END_W * 2),
+    )
   })
 })

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  FIT_MAX_ZOOM,
   MAX_ZOOM,
+  boundsOf,
+  fitCamera,
   MIN_ZOOM,
   panBy,
   rectsIntersect,
@@ -81,5 +84,48 @@ describe('rectsIntersect', () => {
 
   it('treats edge-touching rects as intersecting', () => {
     expect(rectsIntersect({ x: 0, y: 0, w: 10, h: 10 }, { x: 10, y: 0, w: 10, h: 10 })).toBe(true)
+  })
+})
+
+describe('fitCamera', () => {
+  const viewport = { w: 1000, h: 800 }
+
+  it('centres the content exactly in the viewport', () => {
+    const cam = fitCamera({ x: 100, y: 100, w: 400, h: 200 }, viewport)
+    const centre = worldToScreen({ x: 300, y: 200 }, cam)
+    expect(centre.x).toBeCloseTo(500)
+    expect(centre.y).toBeCloseTo(400)
+  })
+
+  it('zooms so the content fills the space inside the padding', () => {
+    const cam = fitCamera({ x: 0, y: 0, w: 4000, h: 1000 }, viewport, 50)
+    // Width is the tight axis: 900 px of room for 4000 world units.
+    expect(cam.zoom).toBeCloseTo(900 / 4000)
+    const tl = worldToScreen({ x: 0, y: 0 }, cam)
+    expect(tl.x).toBeCloseTo(50)
+  })
+
+  it('does not blow a single small node up to fill the screen', () => {
+    expect(fitCamera({ x: 0, y: 0, w: 240, h: 47 }, viewport).zoom).toBe(FIT_MAX_ZOOM)
+  })
+
+  it('centres the origin at 100% on an empty board', () => {
+    const cam = fitCamera(null, viewport)
+    expect(cam.zoom).toBe(1)
+    expect(worldToScreen({ x: 0, y: 0 }, cam)).toEqual({ x: 500, y: 400 })
+  })
+})
+
+describe('boundsOf', () => {
+  it('contains every rect', () => {
+    expect(
+      boundsOf([
+        { x: 0, y: 0, w: 10, h: 10 },
+        { x: -5, y: 20, w: 10, h: 10 },
+      ]),
+    ).toEqual({ x: -5, y: 0, w: 15, h: 30 })
+  })
+  it('is null for nothing', () => {
+    expect(boundsOf([])).toBeNull()
   })
 })

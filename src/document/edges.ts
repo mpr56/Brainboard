@@ -49,6 +49,7 @@ function toEdge(id: EdgeId, m: Y.Map<unknown>): Edge {
     to: m.get('to') as Anchor,
     label: m.get('label') as string | undefined,
     style: m.get('style') as EdgeStyle,
+    color: m.get('color') as string | undefined,
   }
 }
 
@@ -103,5 +104,23 @@ export function updateEdge(
 export function removeEdge(doc: Y.Doc, id: EdgeId, origin: Origin = 'user'): void {
   transact(doc, origin, () => {
     edgesMap(doc).delete(id)
+  })
+}
+
+/**
+ * Sets or clears the colour picked for one connector. Separate from
+ * `updateEdge`, which skips undefined values and so has no way to clear one.
+ */
+export function setEdgeColor(
+  doc: Y.Doc,
+  id: EdgeId,
+  color: string | null,
+  origin: Origin = 'user',
+): void {
+  const m = edgesMap(doc).get(id)
+  if (!m) return
+  transact(doc, origin, () => {
+    if (color) m.set('color', color)
+    else m.delete('color')
   })
 }

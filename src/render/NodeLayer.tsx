@@ -1,16 +1,33 @@
 import { useEffect } from 'react'
+import type { ResizePreview } from '../tools/resize'
 import type { DragPreview } from '../tools/select'
 import type { Dir, Node, NodeId } from '../types'
+import { tint } from '../document/palette'
+import { NODE_BORDER } from './nodeBox'
 import { getNodeType } from './registry'
 
 const HANDLE_DIRS: Dir[] = ['n', 'e', 's', 'w']
 
 /** Diameter of a spawn handle, screen pixels before the camera transform. */
-const HANDLE_SIZE = 18
+const HANDLE_SIZE = 20
 /** Gap between the node's border and the handle sitting outside it. */
-const HANDLE_OFFSET = 9
-/** Diameter of the delete button at the node's top-right corner. */
+const HANDLE_OFFSET = 14
+/** Diameter of the delete button off the node's top-right corner. */
 const DELETE_SIZE = 18
+/**
+ * How far the delete button sits out from the corner, along both axes. Far
+ * enough that it reads as its own control rather than crowding the east and
+ * north handles.
+ */
+const DELETE_OFFSET = 10
+/** Side of the square resize grip on a media node's bottom-right corner. */
+const RESIZE_SIZE = 14
+/** Corner rounding on a media node, which has no card to round. */
+const MEDIA_RADIUS = 6
+/** How much of a node's branch colour washes into its card. */
+const CARD_TINT = 0.09
+const INK = '#1a1a1a'
+const SELECT = '#2d63d6'
 
 /**
  * Handle visibility is CSS-only, deliberately.
@@ -34,13 +51,15 @@ const DELETE_SIZE = 18
  */
 const HANDLE_CSS = `
 [data-node-id] > [data-part="handle"],
-[data-node-id] > [data-part="delete"] {
+[data-node-id] > [data-part="delete"],
+[data-node-id] > [data-part="resize"] {
   opacity: 0;
   pointer-events: none;
   transition: opacity .12s ease, transform .12s ease;
 }
 [data-node-id]:hover > [data-part="handle"],
-[data-node-id]:hover > [data-part="delete"] {
+[data-node-id]:hover > [data-part="delete"],
+[data-node-id]:hover > [data-part="resize"] {
   opacity: 1;
   pointer-events: auto;
 }
@@ -48,7 +67,8 @@ const HANDLE_CSS = `
   z-index: 2147483000;
 }
 [data-node-id][data-dragging="true"] > [data-part="handle"],
-[data-node-id][data-dragging="true"] > [data-part="delete"] {
+[data-node-id][data-dragging="true"] > [data-part="delete"],
+[data-node-id][data-dragging="true"] > [data-part="resize"] {
   opacity: 0;
   pointer-events: none;
 }
@@ -89,15 +109,16 @@ function handlePosition(dir: Dir): React.CSSProperties {
 }
 
 /**
- * How far beyond each edge a node still counts as hovered, as a fraction of
- * that edge's own dimension — so it scales with the node rather than being a
- * fixed pixel ring that feels huge on a small node and mean on a large one.
+ * How far beyond each edge a node still counts as hovered: out to the middle of
+ * the handles, so there is no gap between leaving the border and reaching one
+ * in which the node un-hovers and the handles blink out. Past the middle the
+ * handle itself is hovered, which keeps its node hovered.
  *
- * Percentages in `inset` resolve against the containing block: left/right
- * against its width, top/bottom against its height. `-10%` on all four is
- * exactly "10% bigger on every side".
+ * A fixed ring rather than a percentage. It used to be 10% of each edge, which
+ * on a one-line node is a 4px band above and below — less than the distance to
+ * the north and south handles, so they vanished on the way to them.
  */
-const HOVER_HALO = '-10%'
+const HOVER_HALO = `${-(HANDLE_OFFSET + HANDLE_SIZE / 2)}px`
 
 const HANDLE_LABEL: Record<Dir, string> = {
   n: 'Add a node above',
@@ -108,6 +129,11 @@ const HANDLE_LABEL: Record<Dir, string> = {
 
 type Props = {
   nodes: Node[]
+  /**
+   * Each node's branch colour, from `resolveNodeColors`. A node missing from
+   * it — a root with no colour of its own — is drawn in ink.
+   */
+  colors?: Map<NodeId, string>
   selection: Set<NodeId>
   editingId: NodeId | null
   onEdit: (id: NodeId, patch: Partial<Node>) => void
@@ -121,10 +147,13 @@ type Props = {
    * single document write mid-gesture.
    */
   dragPreview?: DragPreview | null
+  /** In-flight size of a node being resized, painted the same way. */
+  resizePreview?: ResizePreview | null
 }
 
 export function NodeLayer({
   nodes,
+  colors,
   selection,
   editingId,
   onEdit,
@@ -132,6 +161,7 @@ export function NodeLayer({
   onEndEdit,
   onDelete,
   dragPreview = null,
+  resizePreview = null,
 }: Props) {
   // Entering edit mode flips the node's DOM region to contentEditable, but
   // that alone does not move focus there. Without an explicit focus, a
@@ -150,8 +180,14 @@ export function NodeLayer({
   return (
     <>
       <style>{HANDLE_CSS}</style>
-      {nodes.map((node) => {
-        const { View } = getNodeType(node.type)
+      {nodes.map((committed) => {
+        const def = getNodeType(committed.type)
+        const { View } = def
+        // A resize in flight is painted, not written, like a drag.
+        const node =
+          resizePreview?.id === committed.id
+            ? { ...committed, w: resizePreview.w, h: resizePreview.h }
+            : committed
         const selected = selection.has(node.id)
         // The document is untouched during a drag; only this paint moves.
         const dragging = dragPreview?.ids.has(node.id) ?? false
@@ -160,6 +196,8 @@ export function NodeLayer({
         // No card: the border stays (transparent) so the box keeps its size,
         // and turns dashed so selection and hover still have an outline.
         const boxless = node.props.boxless === true
+        const frameless = def.frameless === true
+        const color = colors?.get(node.id)
         return (
           <div
             key={node.id}
@@ -180,12 +218,25 @@ export function NodeLayer({
               width: node.w,
               minHeight: node.h,
               zIndex: node.z,
-              background: boxless ? 'transparent' : '#fdfcf9',
-              border: boxless
-                ? `2px dashed ${selected ? '#2d63d6' : 'transparent'}`
-                : `2px solid ${selected ? '#2d63d6' : '#1a1a1a'}`,
-              borderRadius: 10,
-              boxShadow: boxless ? 'none' : '4px 5px 0 rgba(26,26,26,.13)',
+              // A node wears its branch's colour — on the border, and faintly
+              // across the card — so you can see which branch it belongs to
+              // without tracing the connector back.
+              //
+              // Media has no card at all: the picture, player or page is the
+              // node.
+              background: boxless || frameless ? 'transparent' : color ? tint(color, CARD_TINT) : '#fdfcf9',
+              border: frameless
+                ? 0
+                : boxless
+                  ? `${NODE_BORDER}px dashed ${selected ? SELECT : 'transparent'}`
+                  : `${NODE_BORDER}px solid ${color ?? INK}`,
+              // Selection is a ring outside the border rather than a border
+              // colour, so a selected node keeps showing its branch colour —
+              // which is what the colour wheel that opens on it is changing.
+              outline: selected && !boxless ? `2px solid ${SELECT}` : undefined,
+              outlineOffset: selected && !boxless ? 3 : undefined,
+              borderRadius: frameless ? MEDIA_RADIUS : 10,
+              boxShadow: boxless || frameless ? 'none' : '4px 5px 0 rgba(26,26,26,.13)',
               boxSizing: 'border-box',
             }}
           >
@@ -232,10 +283,10 @@ export function NodeLayer({
                   width: HANDLE_SIZE,
                   height: HANDLE_SIZE,
                   borderRadius: '50%',
-                  border: '2px solid #1a1a1a',
+                  border: `2px solid ${INK}`,
                   background: '#fdfcf9',
-                  color: '#1a1a1a',
-                  font: '600 12px/1 system-ui, sans-serif',
+                  color: INK,
+                  font: '600 13px/1 system-ui, sans-serif',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -263,6 +314,27 @@ export function NodeLayer({
               here would never run. stopPropagation keeps the viewport from
               also starting a select gesture on the node underneath.
             */}
+            {def.resizable && (
+              <div
+                data-part="resize"
+                data-testid={`resize-${node.id}`}
+                title="Resize"
+                aria-label="Resize"
+                style={{
+                  position: 'absolute',
+                  right: -RESIZE_SIZE / 2 - 2,
+                  bottom: -RESIZE_SIZE / 2 - 2,
+                  width: RESIZE_SIZE,
+                  height: RESIZE_SIZE,
+                  borderRadius: 3,
+                  border: `2px solid ${INK}`,
+                  background: '#fdfcf9',
+                  boxSizing: 'border-box',
+                  cursor: 'nwse-resize',
+                  userSelect: 'none',
+                }}
+              />
+            )}
             <div
               data-part="delete"
               data-testid={`delete-${node.id}`}
@@ -274,8 +346,8 @@ export function NodeLayer({
               }}
               style={{
                 position: 'absolute',
-                top: -(DELETE_SIZE / 2) - 4,
-                right: -(DELETE_SIZE / 2) - 4,
+                top: -(DELETE_SIZE / 2) - DELETE_OFFSET,
+                right: -(DELETE_SIZE / 2) - DELETE_OFFSET,
                 width: DELETE_SIZE,
                 height: DELETE_SIZE,
                 borderRadius: '50%',

@@ -37,7 +37,7 @@ describe('connector style control', () => {
     expect(button.textContent).toBe('Curve')
 
     fireEvent.click(button)
-    expect(onEdgeStyle).toHaveBeenCalledWith('elbow')
+    expect(onEdgeStyle).toHaveBeenCalledWith('arrow')
   })
 
   it('renders the label for a non-default style', () => {

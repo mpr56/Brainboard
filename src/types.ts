@@ -35,7 +35,11 @@ export type Node = {
   props: Record<string, unknown>
 }
 
-export type EdgeStyleKind = 'curve' | 'elbow' | 'straight'
+/**
+ * How a connector is routed and painted. `arrow` routes exactly like `curve`
+ * but is painted as a thin line with a small arrowhead instead of a taper.
+ */
+export type EdgeStyleKind = 'curve' | 'arrow' | 'elbow' | 'straight'
 
 export type EdgeStyle = {
   kind: EdgeStyleKind
@@ -49,6 +53,11 @@ export type Edge = {
   to: Anchor
   label?: string
   style: EdgeStyle
+  /**
+   * A colour picked for this one connector. Unlike `style.color` (what the
+   * connector was drawn with), this always wins when painting.
+   */
+  color?: string
 }
 
 /** Metadata a node's asset carries; Plan 2 fills this in. */

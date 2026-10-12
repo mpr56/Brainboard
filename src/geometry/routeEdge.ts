@@ -15,6 +15,13 @@ const OUTWARD: Record<Dir, Point> = {
 const OPPOSITE: Record<Dir, Dir> = { n: 's', s: 'n', e: 'w', w: 'e' }
 
 /**
+ * Whether a style's centreline is a single cubic. `arrow` differs from `curve`
+ * only in how it is painted, so everything that routes or samples a connector
+ * asks this rather than comparing against `'curve'`.
+ */
+export const isCurved = (kind: EdgeStyleKind): boolean => kind === 'curve' || kind === 'arrow'
+
+/**
  * The sides each end leaves and arrives through. An end with no side of its
  * own (a locator, or the cursor during a preview) mirrors the other end, so
  * the connector still runs along one axis; with neither known it is the
@@ -46,7 +53,8 @@ export function routeEdge(
   const [s1, s2] = resolveSides(from, to, fromSide, toSide)
   const vertical = s1 === 'n' || s1 === 's'
 
-  switch (kind) {
+  const route: Exclude<EdgeStyleKind, 'arrow'> = kind === 'arrow' ? 'curve' : kind
+  switch (route) {
     case 'straight': {
       const points = [from, to]
       return { points, d: pathD(points, kind) }
@@ -82,7 +90,7 @@ export function routeEdge(
 export function pathD(points: Point[], kind: EdgeStyleKind): string {
   if (points.length === 0) return ''
   const [from, c1, c2, to] = points
-  if (kind === 'curve' && from && c1 && c2 && to) {
+  if (isCurved(kind) && from && c1 && c2 && to) {
     return `M ${from.x} ${from.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${to.x} ${to.y}`
   }
   return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')

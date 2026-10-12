@@ -15,10 +15,13 @@ describe('createNodeAt', () => {
     expect(getNode(doc, id)).toMatchObject({ x: 400, y: 260, w: 200, h: 80 })
   })
 
-  it('gives it the default text so the node is visible before anything is typed', () => {
+  // The prompt is a placeholder the view paints, not stored text — otherwise
+  // typing into a new node appends to "New idea" rather than replacing it.
+  it('starts empty rather than storing the prompt as text', () => {
     const doc = createDoc()
     const id = createNodeAt(doc, { x: 0, y: 0 }, { size })
-    expect(getNode(doc, id)!.props.text).toBe(NEW_NODE_TEXT)
+    expect(getNode(doc, id)!.props.text).toBe('')
+    expect(getNode(doc, id)!.props.text).not.toBe(NEW_NODE_TEXT)
   })
 
   it('accepts explicit text', () => {

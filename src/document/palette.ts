@@ -44,20 +44,54 @@ const storedRootColor = (e: Edge): string | null => {
   return typeof c === 'string' && HEX.test(c) && c.toLowerCase() !== LEGACY_EDGE_COLOR ? c : null
 }
 
+/** A colour the user picked for one connector. Absent means follow the branch. */
+export function edgeOwnColor(edge: Pick<Edge, 'color'>): string | null {
+  const c = edge.color
+  return typeof c === 'string' && HEX.test(c) ? c : null
+}
+
+/**
+ * The connector each node takes its branch colour from, if any.
+ *
+ * A node's parent link is the first one to arrive at it — but only if it
+ * arrived before the node grew any branches of its own. A node that was
+ * already a hub when something was linked into it stays a root: linking into a
+ * hub joins two ideas, it does not make the hub part of someone else's branch.
+ * Without that, one cross-link repainted every branch of the hub it landed on.
+ *
+ * It also makes parent links acyclic. Following parents round a loop would
+ * need each link to come after the next one in document order, all the way
+ * round — which no order can satisfy.
+ *
+ * Edge order is document order, which is creation order, so every client picks
+ * the same parents.
+ */
+export function parentEdges(edges: Edge[]): Map<NodeId, Edge> {
+  const parent = new Map<NodeId, Edge>()
+  const branched = new Set<NodeId>()
+  for (const e of edges) {
+    const to = e.to.nodeId
+    if (!parent.has(to) && !branched.has(to)) parent.set(to, e)
+    branched.add(e.from.nodeId)
+  }
+  return parent
+}
+
 /**
  * The colour every connector is painted with, resolved from structure.
  *
  * Follows the rule a mind map is read by — a branch keeps one colour all the
- * way out from the trunk — with the colour wheel as the one way to break it:
+ * way out from the trunk — with the colour wheel as the way to break it:
  *
- *   1. A connector arriving at a node that has its own colour takes that
+ *   1. A connector given a colour of its own (clicked and recoloured) takes it.
+ *   2. A connector arriving at a node that has its own colour takes that
  *      colour. Recolouring a node recolours the branch that leads into it.
- *   2. Otherwise it takes its source's colour: the source's own, or the colour
- *      of the connector that arrived at the source. So a recolour flows
- *      downstream until another node with its own colour takes over.
- *   3. Only connectors leaving a root — a node with nothing arriving at it —
- *      fall back to what was stored on the connector when it was drawn, which
- *      is how a root's branches keep distinct palette colours.
+ *   3. Otherwise it takes its source's colour: the source's own, or the colour
+ *      of the source's parent link (see `parentEdges`). So a recolour flows
+ *      downstream until another colour choice takes over.
+ *   4. Connectors leaving a root — a node with no parent link — fall back to
+ *      what was stored on the connector when it was drawn, which is how a
+ *      root's branches keep distinct palette colours.
  *
  * Resolved at paint time rather than read off each edge, because a stored
  * colour cannot follow a recolour upstream, and because stored colours on old
@@ -72,13 +106,10 @@ export function resolveEdgeColors(nodes: Node[], edges: Edge[]): Map<EdgeId, str
     if (c) own.set(n.id, c)
   }
 
-  // First arrival wins when a node has several. Edge order is document order,
-  // so every client picks the same one.
-  const incoming = new Map<NodeId, Edge>()
+  const parent = parentEdges(edges)
   const rootIndex = new Map<EdgeId, number>()
   const outCount = new Map<NodeId, number>()
   for (const e of edges) {
-    if (!incoming.has(e.to.nodeId)) incoming.set(e.to.nodeId, e)
     const i = outCount.get(e.from.nodeId) ?? 0
     rootIndex.set(e.id, i)
     outCount.set(e.from.nodeId, i + 1)
@@ -88,15 +119,15 @@ export function resolveEdgeColors(nodes: Node[], edges: Edge[]): Map<EdgeId, str
     storedRootColor(e) ?? BRANCH_PALETTE[(rootIndex.get(e.id) ?? 0) % BRANCH_PALETTE.length]!
 
   const memo = new Map<EdgeId, string>()
-  // A board is a graph, not a tree: a loop of connectors with no root in it
-  // would recurse forever. An edge met again while it is still being resolved
-  // is a loop, and it falls back to its own stored colour to break it.
+  // Parent links cannot form a loop (see parentEdges), so this guard should
+  // never trip. It stays because the cost of being wrong is a stack overflow
+  // inside render.
   const resolving = new Set<EdgeId>()
 
   const sourceColor = (id: NodeId): string | null => {
     const c = own.get(id)
     if (c) return c
-    const arrived = incoming.get(id)
+    const arrived = parent.get(id)
     return arrived ? edgeColor(arrived) : null
   }
 
@@ -105,7 +136,8 @@ export function resolveEdgeColors(nodes: Node[], edges: Edge[]): Map<EdgeId, str
     if (hit) return hit
     if (resolving.has(e.id)) return fallback(e)
     resolving.add(e.id)
-    const c = own.get(e.to.nodeId) ?? sourceColor(e.from.nodeId) ?? fallback(e)
+    const c =
+      edgeOwnColor(e) ?? own.get(e.to.nodeId) ?? sourceColor(e.from.nodeId) ?? fallback(e)
     resolving.delete(e.id)
     memo.set(e.id, c)
     return c
@@ -117,13 +149,34 @@ export function resolveEdgeColors(nodes: Node[], edges: Edge[]): Map<EdgeId, str
 }
 
 /**
+ * The colour each node is drawn in: its own, or the colour of its parent link.
+ *
+ * A root with no colour of its own is left out. Its branches are all
+ * different colours, so there is no one colour it could honestly wear.
+ */
+export function resolveNodeColors(
+  nodes: Node[],
+  edges: Edge[],
+  edgeColors: Map<EdgeId, string>,
+): Map<NodeId, string> {
+  const parent = parentEdges(edges)
+  const out = new Map<NodeId, string>()
+  for (const n of nodes) {
+    const arrived = parent.get(n.id)
+    const c = nodeColor(n) ?? (arrived ? edgeColors.get(arrived.id) : undefined)
+    if (c) out.set(n.id, c)
+  }
+  return out
+}
+
+/**
  * The colour a new connector leaving `fromNodeId` should take — what
  * `resolveEdgeColors` would paint it once it exists, so the stored value and
  * the painted one agree.
  *
- * A source with a colour of its own, or with a connector arriving at it,
- * passes that colour on. A root starts a new colour, cycling the palette so
- * its own branches stay distinct.
+ * A source with a colour of its own, or with a parent link, passes that colour
+ * on. A root starts a new colour, cycling the palette so its own branches stay
+ * distinct.
  *
  * Deterministic from document state rather than from a counter, so two clients
  * creating edges independently pick the same colours for the same structure.
@@ -136,7 +189,7 @@ export function branchColor(doc: Y.Doc, fromNodeId: NodeId): string {
   const own = source ? nodeColor(source) : null
   if (own) return own
 
-  const arrived = edges.find((e) => e.to.nodeId === fromNodeId)
+  const arrived = parentEdges(edges).get(fromNodeId)
   if (arrived) return resolveEdgeColors(nodes, edges).get(arrived.id)!
 
   const outgoing = edges.filter((e) => e.from.nodeId === fromNodeId).length
@@ -150,4 +203,26 @@ export function branchEdgeStyle(
   kind: EdgeStyle['kind'],
 ): Partial<EdgeStyle> {
   return { kind, color: branchColor(doc, fromNodeId) }
+}
+
+/**
+ * `hex` mixed into the card colour by `amount` (0..1), as a hex string — the
+ * faint wash a coloured node's card gets. Computed rather than left to CSS
+ * `color-mix` so export, which paints to a canvas, gets the identical colour.
+ */
+export function tint(hex: string, amount: number, base = '#fdfcf9'): string {
+  const rgb = (h: string) => {
+    const s = h.replace('#', '')
+    const full = s.length === 3 ? s.replace(/./g, (c) => c + c) : s.slice(0, 6)
+    return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16))
+  }
+  const a = rgb(hex)
+  const b = rgb(base)
+  return (
+    '#' +
+    a
+      .map((v, i) => Math.round(b[i]! + (v - b[i]!) * amount))
+      .map((v) => v.toString(16).padStart(2, '0'))
+      .join('')
+  )
 }

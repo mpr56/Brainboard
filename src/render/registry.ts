@@ -28,6 +28,21 @@ export type NodeTypeDef = {
   domOnly: boolean
   defaultSize: () => { w: number; h: number }
   View: FC<NodeViewProps>
+  /**
+   * Whether a double-click opens the node (typing into text, reading a PDF).
+   * Pictures and players have nothing to open.
+   */
+  editable?: boolean
+  /** Whether the node gets a corner handle to resize it. */
+  resizable?: boolean
+  /** Whether resizing keeps the node's proportions (a picture's, say). */
+  keepAspect?: boolean
+  /**
+   * Drawn with no card — no border, background or shadow — so the view is the
+   * whole node. Media is: a picture should look like a picture on the board,
+   * not a picture in a box.
+   */
+  frameless?: boolean
 }
 
 const registry = new Map<string, NodeTypeDef>()
@@ -44,11 +59,13 @@ export function listNodeTypes(): NodeTypeDef[] {
   return [...registry.values()]
 }
 
+import { MEDIA_NODE_TYPES } from './nodes/MediaNode'
 import { TEXT_NODE_TYPE } from './nodes/TextNode'
 
-registerNodeType(TEXT_NODE_TYPE)
+const BUILT_IN = [TEXT_NODE_TYPE, ...MEDIA_NODE_TYPES]
+for (const def of BUILT_IN) registerNodeType(def)
 
 export function resetRegistry(): void {
   registry.clear()
-  registerNodeType(TEXT_NODE_TYPE)
+  for (const def of BUILT_IN) registerNodeType(def)
 }
