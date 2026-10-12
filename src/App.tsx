@@ -1,9 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { screenToWorld, worldRectToScreen, zoomAt, type Camera } from './camera'
+import {
+  boundsOf,
+  fitCamera,
+  screenToWorld,
+  worldRectToScreen,
+  worldToScreen,
+  zoomAt,
+  type Camera,
+} from './camera'
 import { createNodeAt } from './document/create'
-import { removeNode, updateNode } from './document/nodes'
-import { branchColor, nodeColor, resolveEdgeColors } from './document/palette'
-import { transact } from './document/schema'
+import { removeEdge, setEdgeColor } from './document/edges'
+import { getNode, removeNode, updateNode } from './document/nodes'
+import {
+  branchColor,
+  edgeOwnColor,
+  nodeColor,
+  resolveEdgeColors,
+  resolveNodeColors,
+} from './document/palette'
+import { metaMap, transact } from './document/schema'
+import { exportBoard } from './export/exportBoard'
+import { DEFAULT_EXPORT, exportContent, type ExportOptions } from './export/layout'
+import { pickEdge, routeFor, routeMidpoint, type EdgeRoute } from './geometry/edgeRoute'
+import { MEDIA_ACCEPT, ingestFiles } from './media/ingest'
 import { useEdgeStyle, useEdges, useNodes } from './document/hooks'
 import { setEdgeStyle } from './document/settings'
 import { useBoard } from './useBoard'
@@ -24,14 +43,26 @@ import { visibleNodes } from './render/visibleNodes'
 import { useCameraGestures } from './render/useCameraGestures'
 import { connectTool, pendingEdge, resetConnectTool } from './tools/connect'
 import { hitTestDom } from './tools/hitTest'
+import { createResizeTool, resetResizeTool, resizePreview } from './tools/resize'
 import { dragPreview, resetSelectTool, selectTool } from './tools/select'
 import type { Tool, WorldEvent } from './tools/types'
 import { ColorWheel } from './ui/ColorWheel'
+import { CreatePicker, type CreateKind } from './ui/CreatePicker'
+import { EdgeMenu } from './ui/EdgeMenu'
+import { ExportDialog } from './ui/ExportDialog'
 import { FormatBar } from './ui/FormatBar'
 import { Toolbar } from './ui/Toolbar'
-import type { Anchor, Node, NodeId, Point, Rect } from './types'
+import type { Anchor, EdgeId, Node, NodeId, Point, Rect } from './types'
 
 const BOARD_ID = 'default'
+
+/** How close to a link, in screen pixels, a click still picks it. */
+const EDGE_PICK_PX = 8
+/** How long the Fit button's camera move takes. */
+const FIT_MS = 260
+
+/** A gesture that does nothing — what a press that picked a link hands its move/up to. */
+const idleTool: Tool = { name: 'idle' }
 
 export function App() {
   const { doc, store, undo, ready, error } = useBoard(BOARD_ID)
@@ -46,9 +77,44 @@ export function App() {
   const [selection, setSelection] = useState<Set<NodeId>>(new Set())
   const [marquee, setMarquee] = useState<Rect | null>(null)
   const [editingId, setEditingId] = useState<NodeId | null>(null)
+  // A clicked link. Exclusive with node selection: picking one clears the other.
+  const [selectedEdge, setSelectedEdge] = useState<EdgeId | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
+  // Remembered between openings, so a second export starts where the first left off.
+  const [exportOptions, setExportOptions] = useState<ExportOptions>(DEFAULT_EXPORT)
+  // A short message at the bottom of the screen, for things that went wrong
+  // out of sight (a file that could not be added).
+  const [notice, setNotice] = useState<string | null>(null)
+  // The Text / Media picker a double-click on empty canvas opens: where it
+  // opened on screen, and the board point whatever is picked will go.
+  const [picker, setPicker] = useState<{ client: Point; world: Point } | null>(null)
+  const mediaInput = useRef<HTMLInputElement>(null)
+  // Where files chosen from the file picker go. Set when Media is picked,
+  // read when the chooser hands the files back.
+  const mediaAt = useRef<Point | null>(null)
   const [, forceRender] = useState(0)
 
+  // The latest camera, for the Fit animation, which runs across many renders.
+  const cameraRef = useRef(camera)
+  cameraRef.current = camera
+  const fitFrame = useRef<number | null>(null)
+
   const gestures = useCameraGestures(camera, setCamera)
+  const nodesById = useMemo(() => new Map(nodes.map((n) => [n.id, n] as const)), [nodes])
+
+  /**
+   * The link under a world point, if any. Routed against the committed
+   * document — a link is only ever picked with nothing in flight.
+   */
+  const edgeAt = useCallback(
+    (p: Point): EdgeId | null => {
+      const routes = edges
+        .map((e) => routeFor(e, nodesById, edgeStyleKind))
+        .filter((r): r is EdgeRoute => r !== null)
+      return pickEdge(routes, p, EDGE_PICK_PX / camera.zoom)
+    },
+    [edges, nodesById, edgeStyleKind, camera.zoom],
+  )
   // True between a pointer-down and its matching up/cancel. onPointerMove is a
   // viewport prop, so it also fires on bare hover with nothing in flight; this
   // is what lets those events be dropped before they cost anything.
@@ -63,8 +129,20 @@ export function App() {
    * node bodies, empty canvas — is selection and movement. That is what lets
    * the toolbar have no tool buttons at all: there is no state to get stuck in.
    */
+  const resizeTool = useMemo(
+    () =>
+      createResizeTool((id) => {
+        const n = getNode(doc, id)
+        return n ? getNodeType(n.type).keepAspect === true : false
+      }),
+    [doc],
+  )
   const toolFor = (hit: WorldEvent['hit']): Tool =>
-    hit && (hit.part === 'handle' || hit.part === 'scrubber') ? connectTool : selectTool
+    hit?.part === 'resize'
+      ? resizeTool
+      : hit && (hit.part === 'handle' || hit.part === 'scrubber')
+        ? connectTool
+        : selectTool
 
   /**
    * The tool chosen at pointer-down, held for the rest of that gesture.
@@ -82,7 +160,7 @@ export function App() {
 
   /**
    * The one place a node comes into being, whatever asked for it — the toolbar
-   * button, a double-click on empty canvas, or a spawn handle. Keeping the
+   * button, the double-click picker, or a spawn handle. Keeping the
    * policy here rather than in each caller is what makes "a new node is
    * selected and ready to type into" true of all three without being written
    * three times.
@@ -207,17 +285,27 @@ export function App() {
         if (active instanceof HTMLElement && active.isContentEditable) active.blur()
         setEditingId(null)
       }
+      // A press on empty canvas that lands on a link picks the link, rather
+      // than starting a marquee. Links are found geometrically (see pickEdge).
+      const picked = we.hit ? null : edgeAt(we.worldPoint)
+      setSelectedEdge(picked)
+      if (picked) {
+        setSelection(new Set())
+        activeTool.current = idleTool
+        forceRender((n) => n + 1)
+        return
+      }
       const chosen = toolFor(we.hit)
       activeTool.current = chosen
       chosen.onDown?.(we, ctx)
       forceRender((n) => n + 1)
     },
-    [ctx, editingId, gestures, toWorldEvent],
+    [ctx, editingId, gestures, toWorldEvent, edgeAt],
   )
 
   /**
    * Every double-click on the board is interpreted here: on a node it opens an
-   * edit session, on empty canvas it creates one.
+   * edit session, on empty canvas it opens the Text / Media picker.
    *
    * It has to live at the viewport and route by hit test, because a handler on
    * the node itself would never run. `onPointerDown` calls setPointerCapture
@@ -239,15 +327,37 @@ export function App() {
       if (hit) {
         // Two clicks on a spawn handle are two child nodes. Opening the parent
         // for editing behind them is not what was asked for.
-        if (hit.part === 'handle') return
+        if (hit.part === 'handle' || hit.part === 'resize') return
         setSelection(new Set([hit.nodeId]))
-        setEditingId(hit.nodeId)
+        // Only some nodes have anything to open: text to type into, a PDF to
+        // read. A picture or a player stays selected.
+        const node = nodesById.get(hit.nodeId)
+        if (node && getNodeType(node.type).editable) setEditingId(hit.nodeId)
         return
       }
       const rect = e.currentTarget.getBoundingClientRect()
-      createNode(screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top }, camera))
+      const at = screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top }, camera)
+      // A double-click on a link is two clicks on the link, not a new node.
+      if (edgeAt(at)) return
+      // Empty canvas asks what to put there: swipe left for text, right for media.
+      setPicker({ client: { x: e.clientX, y: e.clientY }, world: at })
     },
-    [camera, createNode],
+    [camera, edgeAt, nodesById],
+  )
+
+  const onPick = useCallback(
+    (kind: CreateKind) => {
+      const at = picker?.world
+      setPicker(null)
+      if (!at) return
+      if (kind === 'text') {
+        createNode(at)
+        return
+      }
+      mediaAt.current = at
+      mediaInput.current?.click()
+    },
+    [createNode, picker],
   )
 
   // Ruling 1: `gestures.movePan` is a per-render prop (deps `[camera, onCamera]`
@@ -306,6 +416,7 @@ export function App() {
       gestureActive.current = false
       resetSelectTool()
       resetConnectTool()
+      resetResizeTool()
       // A pan is the third gesture kind, and it lives in a different place
       // (the camera hook, not module-level tool state). A cancelled pan that
       // is not ended here sticks exactly like an uncaptured one.
@@ -326,7 +437,108 @@ export function App() {
     createNode(screenToWorld({ x: viewport.w / 2, y: viewport.h / 2 }, camera))
   }, [camera, createNode, viewport])
 
-  const nodesById = useMemo(() => new Map(nodes.map((n) => [n.id, n] as const)), [nodes])
+  /**
+   * Frames everything on the board, centred exactly in the viewport, as large
+   * as it will go. Eased rather than cut so you can see where you were.
+   */
+  const onFit = useCallback(() => {
+    const target = fitCamera(boundsOf(nodes), viewport)
+    if (fitFrame.current !== null) cancelAnimationFrame(fitFrame.current)
+    const from = cameraRef.current
+    const { w, h } = viewport
+    // The centre is eased in world space and the zoom geometrically, so the
+    // move reads as one smooth glide rather than a swoop off to the side.
+    const centre = (c: Camera) => ({ x: c.x + w / 2 / c.zoom, y: c.y + h / 2 / c.zoom })
+    const c0 = centre(from)
+    const c1 = centre(target)
+    const t0 = performance.now()
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / FIT_MS)
+      if (t >= 1) {
+        fitFrame.current = null
+        setCamera(target)
+        return
+      }
+      const e = 1 - (1 - t) ** 3
+      const zoom = from.zoom * (target.zoom / from.zoom) ** e
+      const cx = c0.x + (c1.x - c0.x) * e
+      const cy = c0.y + (c1.y - c0.y) * e
+      setCamera({ zoom, x: cx - w / 2 / zoom, y: cy - h / 2 / zoom })
+      fitFrame.current = requestAnimationFrame(step)
+    }
+    fitFrame.current = requestAnimationFrame(step)
+  }, [nodes, viewport])
+
+  useEffect(
+    () => () => {
+      if (fitFrame.current !== null) cancelAnimationFrame(fitFrame.current)
+    },
+    [],
+  )
+
+  /** Adds files as media nodes centred on `at`, selecting what was added. */
+  const addMedia = useCallback(
+    async (files: File[], at: Point) => {
+      try {
+        const ids = await ingestFiles(doc, files, at)
+        if (ids.length > 0) setSelection(new Set(ids))
+        if (ids.length < files.length) {
+          setNotice(
+            ids.length === 0
+              ? 'That file type can’t be added. Images, GIFs, video, audio and PDFs can.'
+              : 'Some files were skipped — only images, GIFs, video, audio and PDFs can be added.',
+          )
+        }
+      } catch (err) {
+        setNotice(`Couldn’t add that file: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    },
+    [doc],
+  )
+
+  const viewportCentre = useCallback(
+    () => screenToWorld({ x: viewport.w / 2, y: viewport.h / 2 }, camera),
+    [camera, viewport],
+  )
+
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    // Without this the browser opens a dropped file in place of the app.
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }, [])
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      const files = [...e.dataTransfer.files]
+      if (files.length === 0) return
+      e.preventDefault()
+      const rect = e.currentTarget.getBoundingClientRect()
+      void addMedia(files, screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top }, camera))
+    },
+    [addMedia, camera],
+  )
+
+  // Pasting a file (a screenshot, say) drops it in the middle of the view.
+  // Not while typing, where a paste is the editor's.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (editingId !== null) return
+      const files = [...(e.clipboardData?.files ?? [])]
+      if (files.length === 0) return
+      e.preventDefault()
+      void addMedia(files, viewportCentre())
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [addMedia, editingId, viewportCentre])
+
+  useEffect(() => {
+    if (!notice) return
+    const id = setTimeout(() => setNotice(null), 4000)
+    return () => clearTimeout(id)
+  }, [notice])
+
   const shown = useMemo(() => visibleNodes(nodes, camera, viewport), [nodes, camera, viewport])
 
   // Read fresh on every render, like `pendingEdge()` below: both are ephemeral
@@ -336,12 +548,19 @@ export function App() {
   // Connectors are drawn against where the nodes *appear*, not where the
   // document has them. During a drag those differ by the in-flight offset, and
   // drawing against the document left every connector behind until release.
-  const paintedById = drag ? offsetNodes(nodesById, drag) : nodesById
+  const resizing = resizePreview()
+  const offset = drag ? offsetNodes(nodesById, drag) : nodesById
+  const paintedById = resizing ? resizedNodes(offset, resizing) : offset
 
   // Resolved from structure on every document change, not read off each edge:
   // a node's colour flows down its branch, and old boards stored every
   // connector as black (see palette.ts).
   const edgeColors = useMemo(() => resolveEdgeColors(nodes, edges), [nodes, edges])
+  // Each node wears the colour of the branch it is on (see resolveNodeColors).
+  const nodeColors = useMemo(
+    () => resolveNodeColors(nodes, edges, edgeColors),
+    [nodes, edges, edgeColors],
+  )
 
   const setProps = useCallback(
     (id: NodeId, props: Record<string, unknown>) => updateNode(doc, id, { props }, 'user'),
@@ -393,23 +612,39 @@ export function App() {
       // means editingId flips to null and returns immediately, without
       // falling through to Delete/v/c on the same keystroke.
       if (e.key === 'Escape') {
-        // First press leaves the editor, the next one lets go of the
-        // selection — which is also what closes the colour wheel.
-        if (typing) setEditingId(null)
-        else setSelection(new Set())
+        // First press leaves the editor (or the export dialog), the next one
+        // lets go of the selection — which is also what closes the colour
+        // wheel and the link menu.
+        if (exportOpen) setExportOpen(false)
+        else if (typing) setEditingId(null)
+        else {
+          setSelection(new Set())
+          setSelectedEdge(null)
+        }
         return
       }
       if (typing) return
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selection.size > 0) {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedEdge !== null) {
+          e.preventDefault()
+          removeEdge(doc, selectedEdge, 'user')
+          setSelectedEdge(null)
+        } else if (selection.size > 0) {
+          e.preventDefault()
+          deleteNodes([...selection])
+        }
+        return
+      }
+      if (e.shiftKey && e.code === 'Digit1') {
         e.preventDefault()
-        deleteNodes([...selection])
+        onFit()
       }
       // No tool shortcuts: with connect gone as a mode there is nothing to
       // switch between, and `v`/`c` would only be a way to get stuck.
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [doc, editingId, selection, undo])
+  }, [doc, editingId, selection, selectedEdge, exportOpen, onFit, undo])
 
   if (error) {
     return (
@@ -424,10 +659,12 @@ export function App() {
   // The text being edited gets the format bar. A node that is simply clicked —
   // the only thing selected, nothing in flight — gets the colour wheel.
   const editNode = editingId !== null ? paintedById.get(editingId) : undefined
+  const idle = !drag && !pending && !marquee && !resizing
   const wheelNode =
-    !editNode && selection.size === 1 && !drag && !pending && !marquee
-      ? paintedById.get([...selection][0]!)
-      : undefined
+    !editNode && selection.size === 1 && idle ? paintedById.get([...selection][0]!) : undefined
+  // The clicked link, with where its menu opens: halfway along it, on screen.
+  const menuEdge = selectedEdge !== null && idle ? edges.find((e) => e.id === selectedEdge) : undefined
+  const menuRoute = menuEdge ? routeFor(menuEdge, paintedById, edgeStyleKind) : null
   const screenBox = (n: Node) => worldRectToScreen({ x: n.x, y: n.y, w: n.w, h: n.h }, camera)
 
   return (
@@ -442,6 +679,8 @@ export function App() {
         }
         edgeStyle={edgeStyleKind}
         onEdgeStyle={(kind) => setEdgeStyle(doc, kind)}
+        onFit={onFit}
+        onExport={() => setExportOpen((open) => !open)}
       />
       <World
         camera={camera}
@@ -451,10 +690,19 @@ export function App() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onDoubleClick={onDoubleClick}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
       >
-        <ConnectorLayer edges={edges} nodesById={paintedById} colors={edgeColors} kind={edgeStyleKind} />
+        <ConnectorLayer
+          edges={edges}
+          nodesById={paintedById}
+          colors={edgeColors}
+          kind={edgeStyleKind}
+          selectedEdgeId={selectedEdge}
+        />
         <NodeLayer
           nodes={shown}
+          colors={nodeColors}
           selection={selection}
           editingId={editingId}
           onEdit={(id, patch) => updateNode(doc, id, patch, 'user')}
@@ -474,10 +722,11 @@ export function App() {
           onEndEdit={(id) => setEditingId((current) => (current === id ? null : current))}
           onDelete={deleteNodes}
           dragPreview={drag}
+          resizePreview={resizing}
         />
       </World>
       <Overlay camera={camera} marquee={marquee} pending={pendingPath} />
-      {editNode && (
+      {editNode && editNode.type === 'text' && (
         <FormatBar
           anchor={screenBox(editNode)}
           viewport={viewport}
@@ -501,12 +750,83 @@ export function App() {
           anchor={screenBox(wheelNode)}
           viewport={viewport}
           current={nodeColor(wheelNode)}
-          effective={nodeColor(wheelNode) ?? arrivingColor(wheelNode.id, edges, edgeColors)}
+          effective={nodeColors.get(wheelNode.id) ?? null}
           onPick={(color) => {
             const { color: _old, ...rest } = wheelNode.props
             setProps(wheelNode.id, color ? { ...rest, color } : rest)
           }}
         />
+      )}
+      {menuEdge && menuRoute && (
+        <EdgeMenu
+          key={menuEdge.id}
+          at={worldToScreen(routeMidpoint(menuRoute), camera)}
+          viewport={viewport}
+          current={edgeOwnColor(menuEdge)}
+          effective={edgeColors.get(menuEdge.id) ?? null}
+          onPick={(color) => setEdgeColor(doc, menuEdge.id, color, 'user')}
+          onDelete={() => {
+            removeEdge(doc, menuEdge.id, 'user')
+            setSelectedEdge(null)
+          }}
+        />
+      )}
+      {exportOpen && (
+        <ExportDialog
+          initial={exportOptions}
+          selectionSize={selection.size}
+          onClose={() => setExportOpen(false)}
+          onExport={async (options) => {
+            setExportOptions(options)
+            const content = exportContent(nodes, edges, options.scope, selection)
+            const title = metaMap(doc).get('title')
+            await exportBoard(
+              { ...content, edgeColors, nodeColors, kind: edgeStyleKind },
+              options,
+              typeof title === 'string' ? title : 'board',
+            )
+          }}
+        />
+      )}
+      {picker && (
+        <CreatePicker at={picker.client} onPick={onPick} onCancel={() => setPicker(null)} />
+      )}
+      <input
+        ref={mediaInput}
+        data-testid="media-input"
+        type="file"
+        accept={MEDIA_ACCEPT}
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = [...(e.currentTarget.files ?? [])]
+          // Cleared so choosing the same file again still fires a change.
+          e.currentTarget.value = ''
+          const at = mediaAt.current ?? viewportCentre()
+          mediaAt.current = null
+          if (files.length > 0) void addMedia(files, at)
+        }}
+      />
+      {notice && (
+        <div
+          role="status"
+          data-testid="notice"
+          style={{
+            position: 'absolute',
+            left: '50%',
+            bottom: 24,
+            translate: '-50% 0',
+            zIndex: 40,
+            padding: '9px 14px',
+            background: '#1a1a1a',
+            color: '#fdfcf9',
+            borderRadius: 8,
+            font: '500 13px system-ui, sans-serif',
+            maxWidth: 'min(520px, calc(100vw - 32px))',
+          }}
+        >
+          {notice}
+        </div>
       )}
     </div>
   )
@@ -525,12 +845,14 @@ function offsetNodes(
   return out
 }
 
-/** The colour of the branch arriving at a node, if anything arrives at it. */
-function arrivingColor(
-  id: NodeId,
-  edges: { id: string; to: { nodeId: NodeId } }[],
-  colors: Map<string, string>,
-): string | null {
-  const arrived = edges.find((e) => e.to.nodeId === id)
-  return arrived ? (colors.get(arrived.id) ?? null) : null
+/** A copy of the node map with the in-flight resize applied. */
+function resizedNodes(
+  byId: Map<NodeId, Node>,
+  r: { id: NodeId; w: number; h: number },
+): Map<NodeId, Node> {
+  const n = byId.get(r.id)
+  if (!n) return byId
+  const out = new Map(byId)
+  out.set(r.id, { ...n, w: r.w, h: r.h })
+  return out
 }

@@ -4,6 +4,16 @@ import { panBy, zoomAt, type Camera } from '../camera'
 const ZOOM_SENSITIVITY = 0.0015
 
 /**
+ * What the wheel handler reads off an event. Native rather than React's
+ * synthetic event: World attaches the listener itself, because React's wheel
+ * listeners are passive and could never cancel the browser's own zoom.
+ */
+export type WheelInput = Pick<
+  WheelEvent,
+  'preventDefault' | 'clientX' | 'clientY' | 'deltaX' | 'deltaY' | 'ctrlKey' | 'metaKey'
+> & { currentTarget: EventTarget | null }
+
+/**
  * Wheel zooms about the cursor; ctrl/meta-less trackpad two-finger scroll pans.
  * Camera state is owned by the caller and never enters the Yjs document.
  */
@@ -11,9 +21,13 @@ export function useCameraGestures(camera: Camera, onCamera: (c: Camera) => void)
   const panning = useRef<{ lastX: number; lastY: number } | null>(null)
 
   const onWheel = useCallback(
-    (e: React.WheelEvent) => {
+    (e: WheelInput) => {
+      // Load-bearing: ⌘/ctrl + wheel, and a trackpad pinch (which browsers
+      // deliver as ctrl + wheel), otherwise also zoom the whole page — so the
+      // toolbar, the colour wheel and every other screen-space control grew
+      // and shrank along with the board.
       e.preventDefault()
-      const rect = e.currentTarget.getBoundingClientRect()
+      const rect = (e.currentTarget as Element).getBoundingClientRect()
       const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top }
       if (e.ctrlKey || e.metaKey) {
         onCamera(zoomAt(camera, screenPoint, Math.exp(-e.deltaY * ZOOM_SENSITIVITY)))

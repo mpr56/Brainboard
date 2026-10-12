@@ -1,7 +1,7 @@
 import type { Dir, Point, Rect } from '../types'
 
 /** World-space gap left between a node and the child spawned off its handle. */
-export const SPAWN_GAP = 60
+export const SPAWN_GAP = 90
 
 /**
  * Where the centre of a new node goes when it is spawned off `rect`'s handle

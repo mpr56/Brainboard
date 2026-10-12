@@ -8,16 +8,20 @@ type Props = {
   onZoom: (factor: number) => void
   edgeStyle: EdgeStyleKind
   onEdgeStyle: (kind: EdgeStyleKind) => void
+  /** Frame everything on the board, centred. */
+  onFit?: () => void
+  onExport?: () => void
 }
 
 /** Cycle order for the connector-style control. */
-export const EDGE_STYLE_KINDS: EdgeStyleKind[] = ['curve', 'elbow', 'straight']
+export const EDGE_STYLE_KINDS: EdgeStyleKind[] = ['curve', 'arrow', 'elbow', 'straight']
 
 export const nextEdgeStyle = (kind: EdgeStyleKind): EdgeStyleKind =>
   EDGE_STYLE_KINDS[(EDGE_STYLE_KINDS.indexOf(kind) + 1) % EDGE_STYLE_KINDS.length] ?? 'curve'
 
 const LABEL: Record<EdgeStyleKind, string> = {
   curve: 'Curve',
+  arrow: 'Arrow',
   elbow: 'Elbow',
   straight: 'Straight',
 }
@@ -40,6 +44,8 @@ export function Toolbar({
   onZoom,
   edgeStyle,
   onEdgeStyle,
+  onFit,
+  onExport,
 }: Props) {
   return (
     <div
@@ -90,6 +96,16 @@ export function Toolbar({
       <button data-testid="zoom-in" style={button(false)} onClick={() => onZoom(1.2)}>
         +
       </button>
+      {onFit && (
+        <button data-testid="fit-view" title="Fit everything on screen (⇧1)" style={button(false)} onClick={onFit}>
+          Fit
+        </button>
+      )}
+      {onExport && (
+        <button data-testid="export" title="Export as an image or PDF" style={button(false)} onClick={onExport}>
+          Export
+        </button>
+      )}
     </div>
   )
 }

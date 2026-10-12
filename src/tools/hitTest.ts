@@ -1,7 +1,7 @@
 import type { Dir } from '../types'
 import type { Hit, Part } from './types'
 
-const PARTS: Part[] = ['body', 'edge', 'handle', 'scrubber']
+const PARTS: Part[] = ['body', 'edge', 'handle', 'scrubber', 'resize']
 const DIRS: Dir[] = ['n', 'e', 's', 'w']
 
 const isPart = (v: string | null): v is Part => v !== null && PARTS.includes(v as Part)

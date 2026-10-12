@@ -4,8 +4,8 @@ A local-first brainstorming canvas: an infinite pan/zoom board of text nodes joi
 with undo/redo and automatic persistence to IndexedDB. Everything runs in the browser — no server,
 no account, no network path.
 
-This repository currently contains **Plan 1 (canvas core)**. Media nodes (video, image, GIF, PDF)
-and time-anchored links are Plan 2 and are not built yet.
+This repository contains **Plan 1 (canvas core)** and the first part of **Plan 2**: media nodes
+(image, GIF, video, audio, PDF). Time-anchored links are not built yet.
 
 - Design spec: [`docs/superpowers/specs/2026-09-21-brainstorm-canvas-design.md`](docs/superpowers/specs/2026-09-21-brainstorm-canvas-design.md)
 - Implementation plan: [`docs/superpowers/plans/2026-09-21-canvas-core.md`](docs/superpowers/plans/2026-09-21-canvas-core.md)
@@ -34,7 +34,12 @@ The board lives in IndexedDB under `brainstorm-canvas/default`. Deleting that da
 
 | Action | How |
 |---|---|
-| Add a text node | Double-click empty canvas — it appears there, ready to type into |
+| Add something | Double-click empty canvas: a small wheel opens. Swipe **left** for text, **right** for media (or click a side, or press ← / →). `Esc` closes it |
+| Add a text node | Pick **Text** from the wheel, or **+ Text** — it appears ready to type into. It starts empty; "New idea" is only a placeholder |
+| Add media | Pick **Media** from the wheel to choose files, or drop them onto the board, or paste one (a screenshot, say). Images, GIFs, video, audio and PDFs. Media sits on the board as itself, with no card round it |
+| Play a video / audio | The bar along its bottom (over a video, it shows while paused or hovered): play / pause, and click or drag the track to seek |
+| Read a PDF | Double-click it to scroll and page through; click off it to go back to moving it |
+| Resize media | Hover it and drag the square grip at its bottom-right. Pictures and videos keep their proportions |
 | Add a linked child | Hover a node, then **click** one of its four `+` handles |
 | Connect two nodes | Hover a node, then **drag** a `+` handle onto another node |
 | Add and connect at once | Drag a `+` handle onto empty canvas — the node is created where you let go |
@@ -42,13 +47,20 @@ The board lives in IndexedDB under `brainstorm-canvas/default`. Deleting that da
 | Format text | While editing, use the bar above the node: Heading / Sub / Body / Small, `A−` / `A+`, **B** / *I* / U — or `⌘B` / `⌘I` / `⌘U` |
 | Text without a box | While editing, the dashed-square button at the end of the format bar toggles the card off and on |
 | Colour a branch | Click a node, pick from the colour wheel above it; **Auto** returns it to the branch colour. `Esc` closes it |
+| Select a link | Click it. The colour wheel recolours just that link (and the branch below it); the **×** on the link, or `Delete`, removes it |
 | Move nodes | Drag them; drag empty canvas to marquee-select |
 | Delete one node | Hover it and click the **×** at its top-right |
 | Delete a selection | Select, then `Delete` / `Backspace` |
-| Connector style | The toolbar's style button cycles curve → elbow → straight |
+| Connector style | The toolbar's style button cycles curve → arrow → elbow → straight |
 | Pan | Middle-drag, or two-finger scroll |
 | Zoom | ⌘/Ctrl + wheel, or the toolbar's zoom buttons |
+| Fit everything | **Fit**, or `⇧1` — frames the whole board, centred, as large as it will go (up to 150%) |
+| Export | **Export** — PNG, JPEG or PDF; board-coloured, white or transparent (PNG) background; plain, dotted, grid or lined paper; 1–3× resolution; the whole board or just the selection |
 | Undo / redo | `⌘Z` / `⇧⌘Z`, or the toolbar buttons |
+
+A swipe to **Media** opens the file chooser only within a few seconds of the double-click — browsers
+allow a page to open one only just after a real press. Later than that, Media lights up and waits
+for a click.
 
 There is no tool mode to be in. Which gesture you get is decided by what you press: a `+` handle
 draws a link, anything else selects and moves. The toolbar has no tool buttons, and `v` / `c` are
@@ -56,21 +68,27 @@ gone with them.
 
 A node's four handles appear on hover, one per side, and the side you reach for is the direction
 the new node goes — click the east handle and the child appears to the east, on the parent's axis.
-Hovering starts 10% outside the node on every edge, so the handles do not vanish as you reach for
-them. That margin is hover-only: pressing in it starts a marquee, not a grab on the node.
+Hovering starts 24px outside the node on every edge — out to the middle of the handles — so the
+handles do not vanish as you reach for them. That margin is hover-only: pressing in it starts a marquee, not a grab on the node.
 
 `Delete` is deliberately inert while a node is open for editing, and every node you create opens
 that way — so the **×** is the way to remove a node you have only just made.
 
 Connectors are drawn as tapered ribbons: wide where they leave their source, narrow where they
-arrive. That taper is what shows direction, so there are no arrowheads. Colour follows the branch —
-a connector takes the colour of the one that arrived at its source, and only a node with nothing
-pointing at it starts a new colour, cycling an eight-entry palette. While you drag one out, the
-preview is the same ribbon in the same colour, so you see what you are about to commit.
+arrive. That taper is what shows direction, so there are no arrowheads — except in the **arrow**
+style, which is the same curve drawn as a thin line with a small head. Colour follows the branch —
+a connector takes the colour of its source's *parent link*, and only a node with no parent link
+starts a new colour, cycling an eight-entry palette. A node's parent link is the first link to
+arrive at it, but only if it arrived before the node had any branches of its own: linking something
+into a hub that already has branches does not repaint them. While you drag one out, the preview is
+the same shape in the same colour, so you see what you are about to commit.
+
+Each node wears its branch's colour too — on its border and faintly across its card. A root has
+branches of several colours, so it stays ink unless you give it a colour of its own.
 
 Colours are resolved when the board is painted, not read off each stored connector. A node picked
 from the colour wheel colours the connector arriving at it and everything downstream, until another
-node with its own colour takes over. Connectors leaving a root keep the palette colour they were
+node with its own colour takes over. A link given its own colour (`edge.color`) beats both. Connectors leaving a root keep the palette colour they were
 drawn with. Boards from before branch colours stored every connector as `#1a1a1a`; that value is
 treated as "no colour chosen", so those boards pick up palette colours too.
 
@@ -90,18 +108,21 @@ including by undo.
 src/
   camera.ts     Camera state and ALL world<->screen math
   document/     Yjs schema, node/edge CRUD, undo manager, IndexedDB persistence
-  geometry/     Anchor resolution and edge routing — pure data, no DOM
-  tools/        select / connect state machines over normalized world events
-  render/       World layer, node views, SVG connectors, screen-space overlay
-  ui/           Toolbar
+  geometry/     Anchor resolution, edge routing and link picking — pure data, no DOM
+  tools/        select / connect / resize state machines over normalized world events
+  render/       World layer, node views (text and media), SVG connectors, screen-space overlay
+  media/        File ingest: classify, measure, store, and create media nodes
+  export/       Board → canvas painter, and a minimal one-image PDF writer
+  ui/           Toolbar, format bar, colour wheel, link menu, export dialog
 ```
 
 Four rules from spec §4 are load-bearing and enforced in review, because they are what would keep
 a future move to a Canvas2D/WebGL renderer a swap rather than a rewrite:
 
 1. Node size lives in the document, never read back from `getBoundingClientRect` as layout truth.
-   The single sanctioned measurement is `TextNode`'s `scrollHeight`, written back under the
-   `'system'` transaction origin so it stays out of the undo stack.
+   The single sanctioned measurement is `TextNode`'s `scrollHeight` (plus the node's border, so
+   the stored box is the drawn box), written back under the `'system'` transaction origin so it
+   stays out of the undo stack.
 2. All coordinate math lives in `camera.ts`. Tools never touch raw `clientX`.
 3. Tools consume a normalized `WorldEvent`; `tools/hitTest.ts` is the only DOM seam.
 4. Connector geometry is pure data computed in `geometry/`; SVG only paints it.
@@ -129,13 +150,17 @@ or a visible "saved" indicator, is a product decision that has not been taken ye
 
 Other gaps in this milestone:
 
-- Node resize is not implemented; text nodes auto-size to their content height only.
+- Text nodes cannot be resized; they auto-size to their content height. Media nodes can.
 - Formatting applies to a whole node; there is no inline (part-of-the-text) bold or italic.
 - The colour wheel has no line-style options (Coggle's thickness / dash arcs).
-- Connector labels exist in the document model but have no UI. `style.arrow` is still stored and no
-  longer painted — the taper carries direction instead.
-- Connectors cannot be selected or deleted on their own. Deleting either end deletes them.
-- There is one board (`default`); there is no board list, export or import.
-- Media nodes, drag-and-drop ingest and time-anchored links are Plan 2.
+- Connector labels exist in the document model but have no UI. `style.arrow` is still stored and not
+  read — the arrow is a board-wide style.
+- There is one board (`default`); there is no board list or import.
+- Media files live in a separate IndexedDB database (`brainstorm-canvas-assets`), not in the Yjs
+  document, so the board stays fast to load. They are never deleted — undo can bring a deleted node
+  back and it must find its file — so the store only grows.
+- Time-anchored links (a link from a moment in a video) are not built.
+- Export draws a video as a placeholder frame with a play button, and a PDF as its title strip; it
+  does not render video frames or PDF pages.
 - If IndexedDB is unavailable (private browsing, exhausted quota), the board reports an error
   rather than running in memory.

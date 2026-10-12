@@ -99,6 +99,18 @@ test('undo removes a created node and redo restores it', async ({ page }) => {
 })
 
 /**
+ * Double-clicks empty canvas and swipes left to pick Text from the picker that
+ * opens. The pointer comes back to the spot afterwards, so callers that go on
+ * to read positions see it where they double-clicked.
+ */
+async function newTextAt(page: Page, x: number, y: number) {
+  await page.mouse.dblclick(x, y)
+  await expect(page.getByTestId('create-picker')).toBeVisible()
+  await page.mouse.move(x - 60, y, { steps: 4 })
+  await expect(page.getByTestId('create-picker')).toHaveCount(0)
+}
+
+/**
  * Drags from a node's spawn handle to a point, or onto another element.
  *
  * The handle only exists to the pointer once its node is hovered
@@ -226,10 +238,12 @@ test('handles do not block the canvas when their node is not hovered', async ({ 
   await expect(page.locator('[data-edge-id]')).toHaveCount(0)
 })
 
-test('double-clicking empty canvas creates a node ready to type into', async ({ page }) => {
+test('double-clicking empty canvas and swiping to Text creates a node ready to type into', async ({
+  page,
+}) => {
   await expect(page.getByTestId('text-node-body')).toHaveCount(0)
 
-  await page.mouse.dblclick(640, 420)
+  await newTextAt(page, 640, 420)
   await expect(page.getByTestId('text-node-body')).toHaveCount(1)
 
   // Created *where it was clicked*, not at the viewport centre like "+ Text".
@@ -366,6 +380,14 @@ test('the in-flight preview shows the tapered connector it will become', async (
 
   const preview = page.getByTestId('pending-edge')
   await expect(preview).toBeVisible()
+  // toBeVisible only asks for a non-zero box, which a path clipped away by its
+  // own <svg> still has. The overlay must actually span the viewport: an svg
+  // left to size itself is 300×150, and the preview was drawn but never seen.
+  const overlay = await page.getByTestId('overlay').boundingBox()
+  const pathBox = await preview.boundingBox()
+  if (!overlay || !pathBox) throw new Error('expected the overlay and preview to have boxes')
+  expect(overlay.x + overlay.width).toBeGreaterThanOrEqual(pathBox.x + pathBox.width)
+  expect(overlay.y + overlay.height).toBeGreaterThanOrEqual(pathBox.y + pathBox.height)
   const r = await ribbonOf(page, '[data-testid="pending-edge"]')
   expect(r.startWidth).toBeGreaterThan(r.endWidth * 2)
 
@@ -404,7 +426,7 @@ test('dragging a connector does not select text across the board', async ({ page
   // pointer over other nodes' text. A drag across empty canvas has nothing to
   // select and would pass whether or not selection is disabled.
   for (const [x, y, label] of [[220, 200, 'alpha'], [540, 205, 'beta'], [860, 210, 'gamma']] as const) {
-    await page.mouse.dblclick(x, y)
+    await newTextAt(page, x, y)
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.type(label)
     await page.mouse.click(700, 650)
@@ -475,7 +497,7 @@ test('a node can be deleted with its × button, connectors and all', async ({ pa
 // so until now a node you had just made could not be deleted without first
 // clicking away from it.
 test('the × deletes a node that is still in its edit session', async ({ page }) => {
-  await page.mouse.dblclick(640, 400)
+  await newTextAt(page, 640, 400)
   await expect(page.getByTestId('text-node-body')).toHaveCount(1)
   await expect(page.getByTestId('text-node-body').first()).toHaveAttribute(
     'contenteditable',
@@ -570,13 +592,16 @@ test('a new node`s estimated height matches the height it actually lays out to',
     const inner = document.querySelector<HTMLElement>('[data-testid="text-node-body"]')!
     const wrapper = inner.closest('[data-node-id]') as HTMLElement
     return {
-      scrollHeight: inner.scrollHeight,
+      // The whole node as drawn, border included.
+      laidOut: wrapper.offsetHeight,
       // What the document settled on, via the wrapper's minHeight.
       stored: parseFloat(wrapper.style.minHeight),
     }
   })
 
-  expect(measured.stored).toBe(measured.scrollHeight)
+  // The document's box is the drawn box, border and all, so everything that
+  // works from the document (connectors, Fit, export) sees the real edges.
+  expect(measured.stored).toBe(measured.laidOut)
 })
 
 // DoD 3: all three routing styles must be reachable from the UI. Before the
@@ -594,7 +619,8 @@ test('creates a connector with a non-default routing style', async ({ page }) =>
   await page.mouse.move(900, 500, { steps: 10 })
   await page.mouse.up()
 
-  // curve -> elbow -> straight
+  // curve -> arrow -> elbow -> straight
+  await page.getByTestId('edge-style').click()
   await page.getByTestId('edge-style').click()
   await page.getByTestId('edge-style').click()
   await expect(page.getByTestId('edge-style')).toHaveAttribute('data-edge-style', 'straight')
@@ -659,6 +685,8 @@ test('switching connector style restyles existing connectors', async ({ page }) 
   for (const p of await paths.all()) await expect(p).toHaveAttribute('data-edge-style', 'curve')
 
   await page.getByTestId('edge-style').click()
+  for (const p of await paths.all()) await expect(p).toHaveAttribute('data-edge-style', 'arrow')
+  await page.getByTestId('edge-style').click()
   for (const p of await paths.all()) await expect(p).toHaveAttribute('data-edge-style', 'elbow')
 
   // Every edge was stored as 'curve', so 'elbow' on disk is the board setting.
@@ -711,7 +739,9 @@ test('Delete works after a text edit without pressing Escape', async ({ page }) 
 test('one undo after an edit shows the reverted text on screen', async ({ page }) => {
   await page.getByTestId('add-text').click()
   const body = page.getByTestId('text-node-body').first()
-  await expect(body).toHaveText('New idea')
+  // A new node is empty, showing "New idea" only as a placeholder.
+  await expect(body).toHaveText('')
+  await expect(body).toHaveAttribute('data-empty', 'true')
 
   await body.dblclick()
   await page.keyboard.press('ControlOrMeta+A')
@@ -720,7 +750,7 @@ test('one undo after an edit shows the reverted text on screen', async ({ page }
   await expect(body).toHaveText('edited text')
 
   await page.keyboard.press('ControlOrMeta+z')
-  await expect(body).toHaveText('New idea')
+  await expect(body).toHaveText('')
 })
 
 // Regression: the middle-button branch returned before setPointerCapture, so a
@@ -913,7 +943,7 @@ test('a node can drop its box, shrink to its text, and get the box back', async 
   // The text was committed after the toggle, so the first undo takes back the
   // text and the second brings the card back — full width, centred where it was.
   await page.keyboard.press('ControlOrMeta+z')
-  await expect(page.getByTestId('text-node-body')).toHaveText('New idea')
+  await expect(page.getByTestId('text-node-body')).toHaveText('')
   await expect(outer).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await page.keyboard.press('ControlOrMeta+z')
   await expect.poll(async () => (await outer.boundingBox())!.width).toBeCloseTo(boxed.width, 0)

@@ -1,5 +1,5 @@
 import { worldToScreen, type Camera } from '../camera'
-import { RIBBON_END_W, RIBBON_START_W, ribbonPath } from '../geometry/ribbon'
+import { connectorPath } from '../geometry/ribbon'
 import type { EdgeStyleKind, Point, Rect } from '../types'
 
 /**
@@ -28,7 +28,7 @@ export function Overlay({ camera, marquee, pending }: Props) {
     : null
 
   // The preview is the connector you are about to make, not a generic line:
-  // same taper, same routing, same branch colour. Its whole job is to answer
+  // same shape, same routing, same branch colour. Its whole job is to answer
   // "which way will this point and what will it look like" before you let go,
   // so a dashed hairline that resembled nothing was answering neither.
   //
@@ -37,17 +37,21 @@ export function Overlay({ camera, marquee, pending }: Props) {
   // unscaled would make the preview and the edge it becomes disagree at every
   // zoom but 100%.
   const pendingD = pending
-    ? ribbonPath(
+    ? connectorPath(
         pending.points.map((p) => worldToScreen(p, camera)),
         pending.kind,
-        RIBBON_START_W * camera.zoom,
-        RIBBON_END_W * camera.zoom,
+        camera.zoom,
       )
     : null
 
   return (
     <svg
       data-testid="overlay"
+      // The explicit size is not redundant with `inset: 0`. An <svg> is a
+      // replaced element, so insets do not stretch it: left to itself it is
+      // 300×150, and everything drawn outside that corner was clipped away.
+      width="100%"
+      height="100%"
       style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
     >
       {box && (

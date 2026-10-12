@@ -1,9 +1,17 @@
 import type { EdgeStyleKind, Point } from '../types'
+import { isCurved } from './routeEdge'
 
 /** Width of a connector where it leaves its source node, in world units. */
 export const RIBBON_START_W = 13
 /** Width where it meets its target. Narrow, so the taper reads as a direction. */
 export const RIBBON_END_W = 3
+
+/** The `arrow` style: an even, thin line… */
+export const ARROW_LINE_W = 2.5
+/** …ending in a small head, this long along the line… */
+export const ARROW_HEAD_LEN = 11
+/** …and this wide across it. */
+export const ARROW_HEAD_W = 10
 
 const MIN_SAMPLES = 16
 const MAX_SAMPLES = 160
@@ -53,7 +61,7 @@ function sampleCount(points: Point[]): number {
 export function sampleCenterline(points: Point[], kind: EdgeStyleKind, n: number): Point[] {
   if (points.length < 2) return []
 
-  if (kind === 'curve' && points.length === 4) {
+  if (isCurved(kind) && points.length === 4) {
     const [p0, c1, c2, p3] = points as [Point, Point, Point, Point]
     return Array.from({ length: n + 1 }, (_, i) => cubicAt(p0, c1, c2, p3, i / n))
   }
@@ -98,7 +106,11 @@ export function ribbonPath(
   endW: number = RIBBON_END_W,
   samples: number = sampleCount(points),
 ): string {
-  const mid = sampleCenterline(points, kind, samples)
+  return outline(sampleCenterline(points, kind, samples), startW, endW)
+}
+
+/** Closes sampled centreline points into a filled band tapering from startW to endW. */
+function outline(mid: Point[], startW: number, endW: number): string {
   if (mid.length < 2) return ''
 
   const last = mid.length - 1
@@ -136,3 +148,65 @@ export function ribbonPath(
 
 /** Keeps the emitted path readable and the DOM small; sub-pixel precision. */
 const round = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * The `arrow` style: a thin even line with a small solid head at the target.
+ *
+ * The line stops where the head's base begins, so the head's point is the
+ * true end of the connector rather than having a square line end poking out
+ * either side of it. The head is aimed along the line's last stretch, so it
+ * follows the curve in rather than pointing at the node from somewhere else.
+ *
+ * Pure geometry (rule 4), like `ribbonPath`. `scale` multiplies every width,
+ * for painters that work in screen space.
+ */
+export function arrowPath(
+  points: Point[],
+  kind: EdgeStyleKind,
+  scale = 1,
+  samples: number = sampleCount(points),
+): string {
+  const mid = sampleCenterline(points, kind, samples)
+  if (mid.length < 2) return ''
+  const tip = mid[mid.length - 1]!
+  // A head longer than half the connector would swallow it. Short links get a
+  // proportionally smaller head instead.
+  const total = polylineLength(mid)
+  if (total === 0) return ''
+  const headLen = Math.min(ARROW_HEAD_LEN * scale, total / 2)
+  const headW = ARROW_HEAD_W * scale * (headLen / (ARROW_HEAD_LEN * scale))
+
+  // Walk back from the tip to where the head's base sits.
+  let k = mid.length - 1
+  while (k > 0 && dist(mid[k - 1]!, tip) < headLen) k--
+  const line = mid.slice(0, k)
+  const base = mid[Math.max(0, k - 1)]!
+  const dx = tip.x - base.x
+  const dy = tip.y - base.y
+  const len = Math.hypot(dx, dy) || 1
+  const ux = dx / len
+  const uy = dy / len
+  const back = { x: tip.x - ux * headLen, y: tip.y - uy * headLen }
+  line.push(back)
+
+  const body = outline(line, ARROW_LINE_W * scale, ARROW_LINE_W * scale)
+  const hw = headW / 2
+  const head = [
+    `M ${round(tip.x)} ${round(tip.y)}`,
+    `L ${round(back.x - uy * hw)} ${round(back.y + ux * hw)}`,
+    `L ${round(back.x + uy * hw)} ${round(back.y - ux * hw)}`,
+    'Z',
+  ].join(' ')
+  return body ? `${body} ${head}` : head
+}
+
+/**
+ * The filled shape a connector of any style is painted as. The one entry
+ * point every painter (committed edges, the drag preview, export) goes
+ * through, so they cannot disagree about what a style looks like.
+ */
+export function connectorPath(points: Point[], kind: EdgeStyleKind, scale = 1): string {
+  return kind === 'arrow'
+    ? arrowPath(points, kind, scale)
+    : ribbonPath(points, kind, RIBBON_START_W * scale, RIBBON_END_W * scale)
+}

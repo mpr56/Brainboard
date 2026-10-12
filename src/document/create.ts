@@ -5,7 +5,11 @@ import { addNode } from './nodes'
 import { branchEdgeStyle } from './palette'
 import { transact, type Origin } from './schema'
 
-/** What a freshly spawned node says until the user types over it. */
+/**
+ * The prompt an empty node shows. A placeholder, not content: new nodes are
+ * created with no text, so typing replaces the prompt instead of being added
+ * after it.
+ */
 export const NEW_NODE_TEXT = 'New idea'
 
 export type CreateNodeOptions = {
@@ -42,7 +46,7 @@ export function createNodeAt(
   opts: CreateNodeOptions,
   origin: Origin = 'user',
 ): NodeId {
-  const { size, text = NEW_NODE_TEXT, from, edgeStyleKind = 'curve' } = opts
+  const { size, text = '', from, edgeStyleKind = 'curve' } = opts
 
   let id!: NodeId
   transact(doc, origin, () => {

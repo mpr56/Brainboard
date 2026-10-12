@@ -3,7 +3,7 @@ import type { EdgeStyleKind } from '../types'
 import { metaMap, transact, type Origin } from './schema'
 
 const EDGE_STYLE_KEY = 'edgeStyle'
-const EDGE_STYLES: readonly EdgeStyleKind[] = ['curve', 'elbow', 'straight']
+const EDGE_STYLES: readonly EdgeStyleKind[] = ['curve', 'arrow', 'elbow', 'straight']
 
 /**
  * How every connector on the board is routed.

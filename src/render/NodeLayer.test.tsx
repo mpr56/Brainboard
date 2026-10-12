@@ -121,10 +121,16 @@ describe('NodeLayer', () => {
     // The gap between a node's border and its handles, and the moment of
     // leaving the border on the way to one, both un-hover the node. The halo
     // is what stops the handles blinking out mid-reach.
-    it('surrounds each node with a hover halo 10% past every edge', () => {
+    it('surrounds each node with a hover halo that reaches its handles', () => {
       layer({ editingId: null })
       const halo = screen.getByTestId('halo-n1')
-      expect(halo.style.inset).toBe('-10%')
+      const reach = -parseFloat(halo.style.inset)
+      const handle = handles('n1').find((el) => el.dataset.dir === 'n')!
+      const handleSize = parseFloat(handle.style.width)
+      const handleOut = -parseFloat(handle.style.top)
+      // At least to the middle of each handle, so there is no gap between
+      // the halo and the handle where the node would un-hover.
+      expect(reach).toBeGreaterThanOrEqual(handleOut - handleSize / 2)
       // Behind the node, so it never covers the body's own hit area.
       expect(halo.style.zIndex).toBe('-1')
     })
@@ -270,5 +276,49 @@ describe('NodeLayer box-less nodes', () => {
     layer({ nodes: [bare()], editingId: null, selection: new Set(['b1']) })
     expect(outer().style.borderStyle).toBe('dashed')
     expect(outer().style.borderColor).toBe('rgb(45, 99, 214)')
+  })
+})
+
+describe('NodeLayer branch colours', () => {
+  const outer = () => document.querySelector<HTMLElement>('[data-node-id="n1"]')!
+
+  it('draws a node`s border in its branch colour, with a faint wash on the card', () => {
+    layer({ editingId: null, colors: new Map([['n1', '#c96a6a']]) })
+    expect(outer().style.borderColor).toBe('rgb(201, 106, 106)')
+    expect(outer().style.background).not.toBe('rgb(253, 252, 249)')
+  })
+
+  it('draws a node with no branch colour in ink', () => {
+    layer({ editingId: null })
+    expect(outer().style.borderColor).toBe('rgb(26, 26, 26)')
+  })
+
+  // The colour wheel opens on a selected node; hiding its colour under a
+  // selection border would hide the very thing being changed.
+  it('keeps the branch colour while selected, ringing the node instead', () => {
+    layer({ editingId: null, selection: new Set(['n1']), colors: new Map([['n1', '#c96a6a']]) })
+    expect(outer().style.borderColor).toBe('rgb(201, 106, 106)')
+    expect(outer().style.outline).toContain('solid')
+  })
+})
+
+describe('NodeLayer media nodes', () => {
+  const pic = (): Node => ({
+    id: 'm1', type: 'image', x: 0, y: 0, w: 300, h: 200, z: 1, parent: null, props: { name: 'a.png' },
+  })
+  const outer = () => document.querySelector<HTMLElement>('[data-node-id="m1"]')!
+
+  // A picture on the board is just the picture: no card, border or shadow.
+  it('draws no frame round media', () => {
+    layer({ nodes: [pic()], editingId: null, colors: new Map([['m1', '#c96a6a']]) })
+    expect(outer().style.background).toBe('transparent')
+    expect(outer().style.boxShadow).toBe('none')
+    expect(parseFloat(outer().style.borderWidth || '0')).toBe(0)
+    expect(outer().style.borderColor).toBe('')
+  })
+
+  it('still rings selected media', () => {
+    layer({ nodes: [pic()], editingId: null, selection: new Set(['m1']) })
+    expect(outer().style.outline).toContain('solid')
   })
 })

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { Node } from '../../types'
+import { NEW_NODE_TEXT } from '../../document/create'
 import { TEXT_NODE_TYPE } from './TextNode'
 
 const node: Node = {
@@ -100,13 +101,13 @@ describe('TextNode', () => {
 
   it('declares itself dom-only false and provides a default size', () => {
     expect(TEXT_NODE_TYPE.domOnly).toBe(false)
-    // The height is one laid-out line: 10px padding top and bottom plus a
-    // 21px line box (15px at 1.4). It is not a roomier round number on
+    // The height is one laid-out line: 13px padding top and bottom, a 21px
+    // line box (15px at 1.4), and the node's 2px border top and bottom. It is not a roomier round number on
     // purpose — measurement corrects a node's `h` but never its `y`, so an
     // over-estimate leaves every new node sitting above the point it was
     // created at and every spawned child off its parent's axis. An e2e test
     // pins this to the height the browser actually lays out.
-    expect(TEXT_NODE_TYPE.defaultSize()).toEqual({ w: 220, h: 41 })
+    expect(TEXT_NODE_TYPE.defaultSize()).toEqual({ w: 240, h: 51 })
   })
 
   it('does not clobber an in-progress edit when text changes while still editing', () => {
@@ -170,5 +171,37 @@ describe('TextNode formatting', () => {
     render(<View node={node} state={{ selected: true, editing: false }} onEdit={onEdit} onMeasure={vi.fn()} onEndEdit={vi.fn()} />)
     fireEvent.keyDown(screen.getByTestId('text-node-body'), { key: 'b', metaKey: true })
     expect(onEdit).not.toHaveBeenCalled()
+  })
+})
+
+describe('TextNode placeholder', () => {
+  const empty = { ...node, props: { text: '' } }
+  const body = () => screen.getByTestId('text-node-body')
+
+  it('shows the prompt on an empty node without making it text', () => {
+    render(<View node={empty} state={{ selected: false, editing: false }} onEdit={vi.fn()} onMeasure={vi.fn()} onEndEdit={vi.fn()} />)
+    expect(body().getAttribute('data-empty')).toBe('true')
+    expect(body().getAttribute('data-placeholder')).toBe(NEW_NODE_TEXT)
+    expect(body().textContent).toBe('')
+  })
+
+  it('drops the prompt as soon as something is typed', () => {
+    render(<View node={empty} state={{ selected: true, editing: true }} onEdit={vi.fn()} onMeasure={vi.fn()} onEndEdit={vi.fn()} />)
+    body().textContent = 'h'
+    fireEvent.input(body())
+    expect(body().getAttribute('data-empty')).toBeNull()
+  })
+
+  it('commits only what was typed', () => {
+    const onEdit = vi.fn()
+    render(<View node={empty} state={{ selected: true, editing: true }} onEdit={onEdit} onMeasure={vi.fn()} onEndEdit={vi.fn()} />)
+    body().textContent = 'hello'
+    fireEvent.blur(body())
+    expect(onEdit).toHaveBeenCalledWith({ props: { text: 'hello' } })
+  })
+
+  it('does not show the prompt on a node with text', () => {
+    render(<View node={node} state={{ selected: false, editing: false }} onEdit={vi.fn()} onMeasure={vi.fn()} onEndEdit={vi.fn()} />)
+    expect(body().getAttribute('data-empty')).toBeNull()
   })
 })
