@@ -33,7 +33,16 @@ function openDb(): Promise<IDBDatabase> {
   return dbPromise
 }
 
-export async function putAssetBlob(id: AssetId, blob: Blob): Promise<void> {
+/**
+ * Where asset bytes are kept. IndexedDB here; a Supabase Storage bucket is the
+ * same two calls. Chosen once at startup (see account/types.ts `Backend`).
+ */
+export type AssetBackend = {
+  put(id: AssetId, blob: Blob): Promise<void>
+  get(id: AssetId): Promise<Blob | null>
+}
+
+async function idbPut(id: AssetId, blob: Blob): Promise<void> {
   const db = await openDb()
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite')
@@ -44,7 +53,7 @@ export async function putAssetBlob(id: AssetId, blob: Blob): Promise<void> {
   })
 }
 
-export async function getAssetBlob(id: AssetId): Promise<Blob | null> {
+async function idbGet(id: AssetId): Promise<Blob | null> {
   const db = await openDb()
   return new Promise((resolve, reject) => {
     const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(id)
@@ -53,7 +62,19 @@ export async function getAssetBlob(id: AssetId): Promise<Blob | null> {
   })
 }
 
+export const indexedDbAssets: AssetBackend = { put: idbPut, get: idbGet }
+
+let backend: AssetBackend = indexedDbAssets
 const urls = new Map<AssetId, Promise<string | null>>()
+
+/** Points every asset read and write at `next`. Called before any board opens. */
+export function setAssetBackend(next: AssetBackend): void {
+  backend = next
+  urls.clear()
+}
+
+export const putAssetBlob = (id: AssetId, blob: Blob): Promise<void> => backend.put(id, blob)
+export const getAssetBlob = (id: AssetId): Promise<Blob | null> => backend.get(id)
 
 /**
  * An object URL for an asset's bytes, created once per asset per page load

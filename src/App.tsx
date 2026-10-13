@@ -26,6 +26,7 @@ import { MEDIA_ACCEPT, ingestFiles } from './media/ingest'
 import { useEdgeStyle, useEdges, useNodes } from './document/hooks'
 import { setEdgeStyle } from './document/settings'
 import { useBoard } from './useBoard'
+import type { Backend } from './account/types'
 import { ConnectorLayer } from './render/ConnectorLayer'
 import { nodePort } from './geometry/anchors'
 import { routeEdge } from './geometry/routeEdge'
@@ -54,8 +55,6 @@ import { FormatBar } from './ui/FormatBar'
 import { Toolbar } from './ui/Toolbar'
 import type { Anchor, EdgeId, Node, NodeId, Point, Rect } from './types'
 
-const BOARD_ID = 'default'
-
 /** How close to a link, in screen pixels, a click still picks it. */
 const EDGE_PICK_PX = 8
 /** How long the Fit button's camera move takes. */
@@ -64,8 +63,19 @@ const FIT_MS = 260
 /** A gesture that does nothing — what a press that picked a link hands its move/up to. */
 const idleTool: Tool = { name: 'idle' }
 
-export function App() {
-  const { doc, store, undo, ready, error } = useBoard(BOARD_ID)
+type Props = {
+  boardId: string
+  /** Names the exported file. Falls back to the title stored in the document. */
+  boardTitle?: string
+  persist?: Backend['persistBoard']
+}
+
+/**
+ * One open board. Mounted per board (keyed by id in Root), so camera,
+ * selection and undo history all start fresh when the user switches boards.
+ */
+export function App({ boardId, boardTitle, persist }: Props) {
+  const { doc, store, undo, ready, error } = useBoard(boardId, persist)
   const nodes = useNodes(store)
   const edges = useEdges(store)
   // A board-wide setting, not per-edge: the toolbar switch restyles every
@@ -779,11 +789,11 @@ export function App() {
           onExport={async (options) => {
             setExportOptions(options)
             const content = exportContent(nodes, edges, options.scope, selection)
-            const title = metaMap(doc).get('title')
+            const stored = metaMap(doc).get('title')
             await exportBoard(
               { ...content, edgeColors, nodeColors, kind: edgeStyleKind },
               options,
-              typeof title === 'string' ? title : 'board',
+              boardTitle ?? (typeof stored === 'string' ? stored : 'board'),
             )
           }}
         />

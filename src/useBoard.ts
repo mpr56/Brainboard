@@ -31,7 +31,12 @@ const EMPTY_STORE: DocStore = {
   destroy: () => {},
 }
 
-export function useBoard(boardId: string): Board {
+/**
+ * `persist` is the backend's board loader (see account/types.ts). It must keep
+ * one identity for the life of the app — it is an effect dependency, so a new
+ * function each render would reload the board each render.
+ */
+export function useBoard(boardId: string, persist: typeof persistDoc = persistDoc): Board {
   const doc = useMemo(() => createDoc(), [boardId])
   const undo = useMemo(() => createUndoManager(doc), [doc])
 
@@ -77,9 +82,9 @@ export function useBoard(boardId: string): Board {
       setError(err instanceof Error ? err.message : String(err))
     }
 
-    let p: ReturnType<typeof persistDoc> | null = null
+    let p: ReturnType<typeof persist> | null = null
     try {
-      p = persistDoc(doc, boardId)
+      p = persist(doc, boardId)
     } catch (err) {
       onFailure(err)
     }
@@ -101,7 +106,7 @@ export function useBoard(boardId: string): Board {
       void p?.destroy()
       liveStore.destroy()
     }
-  }, [doc, boardId])
+  }, [doc, boardId, persist])
 
   return { doc, store, undo, ready, error }
 }
