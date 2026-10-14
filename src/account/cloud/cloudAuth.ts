@@ -28,6 +28,10 @@ export function createCloudAuth(client: AuthClient = defaultClient()): AuthProvi
     async start(): Promise<Session> {
       const existing = await client.getSession()
       if (existing.data?.user) return { user: toUser(existing.data.user) }
+      // Better Auth reports failures in `error` rather than throwing. A session
+      // that couldn't be read (a 5xx, say) is not "no session": minting an
+      // anonymous user here would sign a Google user out of their boards.
+      if (existing.error) throw new Error(existing.error.message ?? 'Could not read the session.')
       const made = await client.signIn.anonymous()
       if (!made.data) throw new Error(made.error?.message ?? 'Could not start a session.')
       return { user: toUser(made.data.user) }

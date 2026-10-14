@@ -9,6 +9,8 @@ import { browserImporter } from './importLocal'
 export function createCloudBackend(): Backend {
   const auth = createCloudAuth()
   const assets = createCloudAssets()
+  // Uploads cut short by a dropped connection go as soon as it is back.
+  window.addEventListener('online', () => void assets.retryPending())
   const backend: Backend = {
     auth: {
       ...auth,

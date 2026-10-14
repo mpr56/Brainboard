@@ -71,8 +71,8 @@ Put its id and secret in `worker/.dev.vars`. Without them the "Sign in with Goog
 5. From `worker/`: `npx wrangler secret put BETTER_AUTH_SECRET`, and the same for `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 6. `npm run deploy` from the root.
 
-If an upload to the board list fails partway, the offer comes back on the next start, and boards
-already copied are copied again.
+If uploading this browser's boards fails partway, the offer comes back on the next start and picks
+up where it stopped: finished boards are skipped, and a half-copied one is completed in place.
 
 ## Using it
 

@@ -38,6 +38,34 @@ describe('createCloudAssets', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/assets/a1', expect.objectContaining({ method: 'PUT' }))
   })
 
+  it('returns once the file is stored locally, without waiting for the upload', async () => {
+    const cache = memoryCache()
+    const storage = memoryStorage()
+    let finish: (r: Response) => void = () => {}
+    fetchMock.mockImplementation(() => new Promise<Response>((r) => (finish = r)))
+    const settled = await Promise.race([
+      createCloudAssets(cache, storage).put('slow', blob()).then(() => 'put resolved'),
+      new Promise((r) => setTimeout(() => r('still waiting'), 100)),
+    ])
+    expect(settled).toBe('put resolved')
+    expect(cache.map.has('slow')).toBe(true)
+    // Until the upload lands it is queued, so a closed tab still retries it next start.
+    expect(storage.getItem('bb_pending_uploads')).toBe('["slow"]')
+    finish(new Response(null, { status: 204 }))
+    await vi.waitFor(() => expect(storage.getItem('bb_pending_uploads')).toBe('[]'))
+  })
+
+  it('still stores the file when the pending list cannot be written', async () => {
+    const cache = memoryCache()
+    const storage = memoryStorage()
+    storage.setItem = () => {
+      throw new DOMException('full', 'QuotaExceededError')
+    }
+    fetchMock.mockImplementation(noContent)
+    await createCloudAssets(cache, storage).put('q', blob())
+    expect(cache.map.has('q')).toBe(true)
+  })
+
   it('refuses a file over the limit before storing anything', async () => {
     const cache = memoryCache()
     const storage = memoryStorage()

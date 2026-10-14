@@ -24,6 +24,13 @@ describe('createCloudAuth', () => {
     expect(user).toEqual({ id: 'u1', kind: 'anonymous', createdAt: Date.parse(anonUser.createdAt) })
   })
 
+  it('does not replace a session it merely failed to read', async () => {
+    const c = client(null)
+    c.getSession.mockResolvedValue({ data: null, error: { message: 'Server error', status: 500 } })
+    await expect(createCloudAuth(c).start()).rejects.toThrow('Server error')
+    expect(c.signIn.anonymous).not.toHaveBeenCalled()
+  })
+
   it('surfaces a failed anonymous sign-in', async () => {
     const c = client(null, { data: null, error: { message: 'nope' } })
     await expect(createCloudAuth(c).start()).rejects.toThrow('nope')

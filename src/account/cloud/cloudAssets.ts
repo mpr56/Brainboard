@@ -13,9 +13,11 @@ export type CloudAssets = AssetBackend & {
 
 /**
  * Media in R2, with this browser's IndexedDB store in front of it: writes land
- * locally first (so the node shows at once, and offline), reads come from the
- * local copy when there is one. A failed upload is remembered and retried on
- * the next start, so a file is never only on a server that never got it.
+ * locally first and `put` returns then (so the node shows at once, and
+ * offline), the upload carries on behind it, and reads come from the local
+ * copy when there is one. Every upload is on the pending list until it lands,
+ * so one cut short — a failed request, a closed tab — is retried later and a
+ * file is never only on a server that never got it.
  */
 export function createCloudAssets(cache: AssetBackend = indexedDbAssets, storage: Storage = localStorage): CloudAssets {
   const pending = (): Set<AssetId> => {
@@ -29,7 +31,11 @@ export function createCloudAssets(cache: AssetBackend = indexedDbAssets, storage
     const ids = pending()
     if (waiting) ids.add(id)
     else ids.delete(id)
-    storage.setItem(PENDING_KEY, JSON.stringify([...ids]))
+    try {
+      storage.setItem(PENDING_KEY, JSON.stringify([...ids]))
+    } catch {
+      // Storage full or blocked: the file is still saved locally; only the retry is lost.
+    }
   }
 
   const upload = (id: AssetId, blob: Blob) =>
@@ -43,11 +49,11 @@ export function createCloudAssets(cache: AssetBackend = indexedDbAssets, storage
     async put(id, blob) {
       if (blob.size > ASSET_MAX_BYTES) throw new Error('That file is too large to upload — the limit is 95 MB.')
       await cache.put(id, blob)
-      try {
-        await upload(id, blob)
-      } catch {
-        mark(id, true)
-      }
+      mark(id, true)
+      upload(id, blob).then(
+        () => mark(id, false),
+        () => {}, // stays pending
+      )
     },
 
     async get(id) {
