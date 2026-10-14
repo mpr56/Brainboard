@@ -1,8 +1,9 @@
 # Brainstorm Canvas
 
 A local-first brainstorming canvas: an infinite pan/zoom board of text nodes joined by connectors,
-with undo/redo and automatic persistence to IndexedDB. Everything runs in the browser — no server,
-no account, no network path.
+with undo/redo and automatic persistence to IndexedDB. It runs entirely in the browser by default;
+built for the cloud backend, boards also sync to a Cloudflare Worker under an anonymous or Google
+account (see [Backends](#backends)).
 
 This repository contains **Plan 1 (canvas core)** and the first part of **Plan 2**: media nodes
 (image, GIF, video, audio, PDF). Time-anchored links are not built yet.
@@ -29,6 +30,49 @@ npm run preview    # serve the production build on http://localhost:4173
 ```
 
 The board lives in IndexedDB under `brainstorm-canvas/default`. Deleting that database resets it.
+
+## Backends
+
+The app runs against one of two backends, picked at build time in `src/main.tsx`:
+
+- **local** (`npm run dev`, unit tests, e2e): everything in this browser's IndexedDB.
+- **cloud** (`npm run dev:cloud`, `npm run build:cloud`, `npm run deploy`): the Cloudflare Worker in
+  `worker/`. Better Auth (anonymous users, Google sign-in) on D1, media and previews in R2, and one
+  Durable Object per board holding its Yjs document. The browser keeps an IndexedDB copy of each
+  board and file as a cache, so boards open instantly and keep working offline. The first cloud start
+  offers to upload boards already in this browser.
+
+`worker/` is its own npm package (it needs vitest 4 and the Workers runtime):
+
+```sh
+cd worker
+npm install
+npm test           # worker tests, in workerd with local D1/R2/Durable Objects
+npm run typecheck  # regenerates worker-configuration.d.ts, then tsc
+```
+
+### Running the cloud backend locally
+
+1. `cd worker && cp .dev.vars.example .dev.vars`, and set `BETTER_AUTH_SECRET` (`openssl rand -base64 32`).
+2. From the root: `npx wrangler d1 migrations apply brainboard --local -c worker/wrangler.jsonc --persist-to .wrangler/state`.
+3. `npm run dev:cloud`, open http://localhost:5173.
+4. `npx playwright test e2e/cloud.spec.ts` runs the cloud smoke test against it (it skips itself on the local backend).
+
+Google sign-in needs an OAuth client (Web application) from Google Cloud with redirect URIs
+`http://localhost:5173/api/auth/callback/google` and `https://<your-worker-host>/api/auth/callback/google`.
+Put its id and secret in `worker/.dev.vars`. Without them the "Sign in with Google" button returns an error.
+
+### Deploying
+
+1. `npx wrangler login`.
+2. `npx wrangler d1 create brainboard`, and paste the database id into `worker/wrangler.jsonc` in place of `"local"`.
+3. `npx wrangler r2 bucket create brainboard`.
+4. `cd worker && npm run migrate:remote`.
+5. From `worker/`: `npx wrangler secret put BETTER_AUTH_SECRET`, and the same for `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+6. `npm run deploy` from the root.
+
+If an upload to the board list fails partway, the offer comes back on the next start, and boards
+already copied are copied again.
 
 ## Using it
 
