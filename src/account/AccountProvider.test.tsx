@@ -47,6 +47,14 @@ describe('AccountProvider', () => {
     expect(account().boards.map((b) => b.id)).toEqual([LEGACY_BOARD_ID])
   })
 
+  it('picks up boards added behind its back when asked to reload', async () => {
+    const { account, backend: b } = await mount()
+    const made = await b.boards.create(account().user.id, 'Imported')
+    expect(account().boards.map((x) => x.id)).not.toContain(made.id)
+    await act(() => account().reloadBoards())
+    expect(account().boards.map((x) => x.id)).toContain(made.id)
+  })
+
   it('adds a board it creates', async () => {
     const { account } = await mount()
     const made = await act(() => account().createBoard())

@@ -79,4 +79,9 @@ export type Backend = {
   /** Loads a board's document into `doc` and keeps it saved. */
   persistBoard: (doc: Y.Doc, boardId: BoardId) => Persistence
   assets: AssetBackend
+  /** Copies boards made in this browser before the cloud backend into the account. Cloud only. */
+  importLocal?: {
+    find(): Promise<BoardRecord[]>
+    run(userId: UserId, boards: BoardRecord[]): Promise<number>
+  }
 }

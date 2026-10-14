@@ -3,12 +3,13 @@ import { createCloudAssets } from './cloudAssets'
 import { createCloudAuth } from './cloudAuth'
 import { createCloudBoards } from './cloudBoards'
 import { createCloudPersistence } from './cloudPersistence'
+import { browserImporter } from './importLocal'
 
 /** Everything on Cloudflare, with this browser's IndexedDB as a cache in front. */
 export function createCloudBackend(): Backend {
   const auth = createCloudAuth()
   const assets = createCloudAssets()
-  return {
+  const backend: Backend = {
     auth: {
       ...auth,
       // Retrying uploads needs a session, so it waits for one.
@@ -23,4 +24,6 @@ export function createCloudBackend(): Backend {
     persistBoard: createCloudPersistence(),
     assets,
   }
+  backend.importLocal = browserImporter(backend)
+  return backend
 }

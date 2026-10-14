@@ -17,6 +17,8 @@ export type Account = {
   createBoard: (title?: string) => Promise<BoardRecord>
   renameBoard: (id: BoardId, title: string) => Promise<void>
   deleteBoard: (id: BoardId) => Promise<void>
+  /** Re-reads the board list, for boards added outside this provider (an import). */
+  reloadBoards: () => Promise<void>
 }
 
 type Loaded = { user: User; boards: BoardRecord[] }
@@ -106,10 +108,17 @@ export function AccountProvider({ backend, children }: { backend: Backend; child
     [backend],
   )
 
+  const reloadBoards = useCallback(async () => {
+    const s = latest.current
+    if (!s) return
+    const boards = await backend.boards.list(s.user.id)
+    setState((prev) => prev && { ...prev, boards })
+  }, [backend])
+
   const account = useMemo<Account | null>(() => {
     if (!state) return null
-    return { user: state.user, boards: state.boards, backend, markOpened, createBoard, renameBoard, deleteBoard }
-  }, [state, backend, markOpened, createBoard, renameBoard, deleteBoard])
+    return { user: state.user, boards: state.boards, backend, markOpened, createBoard, renameBoard, deleteBoard, reloadBoards }
+  }, [state, backend, markOpened, createBoard, renameBoard, deleteBoard, reloadBoards])
 
   if (error) {
     return (

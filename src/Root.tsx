@@ -1,17 +1,35 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App } from './App'
 import { useAccount } from './account/AccountProvider'
-import type { BoardId, BoardPreview } from './account/types'
+import { IMPORT_OFFERED_KEY } from './account/cloud/importLocal'
+import type { BoardId, BoardPreview, BoardRecord } from './account/types'
 import { navigate, useRoute } from './route'
 import { AccountBadge } from './ui/AccountBadge'
 import { BoardHeader } from './ui/BoardHeader'
 import { Home } from './ui/Home'
+import { ImportBanner } from './ui/ImportBanner'
 
 const report = (err: unknown) => console.error('[boards]', err)
 
+/** localStorage can throw (blocked storage); a lost flag only means the offer comes again. */
+const importOffered = () => {
+  try {
+    return localStorage.getItem(IMPORT_OFFERED_KEY) !== null
+  } catch {
+    return false
+  }
+}
+const markImportOffered = () => {
+  try {
+    localStorage.setItem(IMPORT_OFFERED_KEY, '1')
+  } catch {
+    // see importOffered
+  }
+}
+
 /** Home, or the board the URL names. */
 export function Root() {
-  const { user, boards, backend, markOpened, createBoard, renameBoard, deleteBoard } = useAccount()
+  const { user, boards, backend, markOpened, createBoard, renameBoard, deleteBoard, reloadBoards } = useAccount()
   const route = useRoute()
   const board = route.page === 'board' ? boards.find((b) => b.id === route.boardId) : undefined
 
@@ -63,6 +81,32 @@ export function Root() {
 
   const signIn = backend.auth.signInWithGoogle
 
+  // Boards made in this browser before the cloud backend, offered for upload once.
+  const [importable, setImportable] = useState<BoardRecord[]>([])
+  const [importing, setImporting] = useState(false)
+  useEffect(() => {
+    if (!backend.importLocal || importOffered()) return
+    backend.importLocal.find().then(setImportable, report)
+  }, [backend])
+  const finishImport = () => {
+    markImportOffered()
+    setImportable([])
+  }
+  const runImport = async () => {
+    if (!backend.importLocal) return
+    setImporting(true)
+    try {
+      await backend.importLocal.run(user.id, importable)
+      await reloadBoards()
+      finishImport()
+    } catch (err) {
+      // The flag stays unset, so the offer comes back next time.
+      report(err)
+    } finally {
+      setImporting(false)
+    }
+  }
+
   if (route.page === 'board') {
     if (!board) return null
     return (
@@ -87,15 +131,20 @@ export function Root() {
   }
 
   return (
-    <Home
-      boards={boards}
-      loadPreview={loadPreview}
-      previewRevs={previewRevs}
-      onCreate={() => void startBoard().catch(report)}
-      onStartFromFiles={(files, folder) => void startBoard(folder ?? undefined, files).catch(report)}
-      onRename={(id, title) => void renameBoard(id, title).catch(report)}
-      onDelete={(id) => void deleteBoard(id).catch(report)}
-      accountSlot={<AccountBadge user={user} onSignIn={signIn ? () => void signIn().catch(report) : undefined} />}
-    />
+    <>
+      <Home
+        boards={boards}
+        loadPreview={loadPreview}
+        previewRevs={previewRevs}
+        onCreate={() => void startBoard().catch(report)}
+        onStartFromFiles={(files, folder) => void startBoard(folder ?? undefined, files).catch(report)}
+        onRename={(id, title) => void renameBoard(id, title).catch(report)}
+        onDelete={(id) => void deleteBoard(id).catch(report)}
+        accountSlot={<AccountBadge user={user} onSignIn={signIn ? () => void signIn().catch(report) : undefined} />}
+      />
+      {importable.length > 0 && (
+        <ImportBanner count={importable.length} busy={importing} onImport={() => void runImport()} onDismiss={finishImport} />
+      )}
+    </>
   )
 }
