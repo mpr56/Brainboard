@@ -62,12 +62,6 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      # The build only needs these to be present, not to point anywhere real:
-      # every route touching Supabase renders on demand, not at build time.
-      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
-      NEXT_TELEMETRY_DISABLED: 1
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -77,12 +71,32 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
 
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 7
+
   # The single check branch protection requires. Listing it alone keeps the
   # ruleset valid when jobs above are added, renamed or split.
   ci:
     name: CI passed
     if: always()
-    needs: [lint, typecheck, test, build]
+    needs: [lint, typecheck, test, build, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
