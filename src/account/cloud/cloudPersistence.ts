@@ -42,12 +42,33 @@ export function createCloudPersistence(makeRemote: RemoteFactory = socketRemote,
     const local = new IndexeddbPersistence(boardKey(boardId), doc)
     const remote = makeRemote(boardId, doc)
 
-    let status: SyncStatus = 'connecting'
+    // The socket's own view, and the browser's. A dropped network can leave a
+    // socket looking open until y-websocket's 30 s message timeout, so the
+    // browser's offline event is believed at once.
+    let socket: SyncStatus = 'connecting'
+    let browserOnline = navigator.onLine !== false
+    let status: SyncStatus = browserOnline ? socket : 'offline'
     const listeners = new Set<(s: SyncStatus) => void>()
-    remote.on('status', ({ status: s }) => {
-      status = s === 'connected' ? 'online' : s === 'connecting' ? 'connecting' : 'offline'
+    const update = () => {
+      const next = browserOnline ? socket : 'offline'
+      if (next === status) return
+      status = next
       for (const l of listeners) l(status)
+    }
+    remote.on('status', ({ status: s }) => {
+      socket = s === 'connected' ? 'online' : s === 'connecting' ? 'connecting' : 'offline'
+      update()
     })
+    const onOnline = () => {
+      browserOnline = true
+      update()
+    }
+    const onOffline = () => {
+      browserOnline = false
+      update()
+    }
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
 
     const whenServerSynced = new Promise<void>((resolve) => {
       remote.on('sync', (synced) => synced && resolve())
@@ -69,6 +90,8 @@ export function createCloudPersistence(makeRemote: RemoteFactory = socketRemote,
         },
       },
       async destroy() {
+        window.removeEventListener('online', onOnline)
+        window.removeEventListener('offline', onOffline)
         remote.destroy()
         await local.destroy()
       },

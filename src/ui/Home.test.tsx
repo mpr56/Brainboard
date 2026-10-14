@@ -32,6 +32,11 @@ const titles = () => screen.getAllByTestId('board-card-title').map((t) => t.text
 const card = (id: string) => screen.getAllByTestId('board-card').find((c) => c.dataset.boardId === id)!
 
 describe('Home', () => {
+  it('puts the account slot in the sidebar', () => {
+    home({ accountSlot: <span data-testid="slot">me</span> })
+    expect(within(screen.getByRole('navigation', { name: 'Library' })).getByTestId('slot')).toBeTruthy()
+  })
+
   it('lists boards most recently opened first, each linking to its board', () => {
     home()
     expect(titles()).toEqual(['Beta', 'Gamma', 'Alpha'])

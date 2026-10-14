@@ -76,6 +76,22 @@ describe('createCloudPersistence', () => {
     await p.destroy()
   })
 
+  it('goes offline as soon as the browser does, without waiting for the socket to notice', async () => {
+    const remote = fakeRemote()
+    const p = createCloudPersistence(() => remote, 10)(new Y.Doc(), uniqueId())
+    remote.emit('status', { status: 'connected' })
+    const seen: string[] = []
+    p.status!.subscribe((s) => seen.push(s))
+    window.dispatchEvent(new Event('offline'))
+    expect(p.status!.get()).toBe('offline')
+    window.dispatchEvent(new Event('online'))
+    expect(p.status!.get()).toBe('online')
+    expect(seen).toEqual(['offline', 'online'])
+    await p.destroy()
+    window.dispatchEvent(new Event('offline'))
+    expect(seen).toEqual(['offline', 'online'])
+  })
+
   it('resolves whenServerSynced on the first sync', async () => {
     const remote = fakeRemote()
     const p = createCloudPersistence(() => remote, 10)(new Y.Doc(), uniqueId())

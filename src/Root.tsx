@@ -3,6 +3,7 @@ import { App } from './App'
 import { useAccount } from './account/AccountProvider'
 import type { BoardId, BoardPreview } from './account/types'
 import { navigate, useRoute } from './route'
+import { AccountBadge } from './ui/AccountBadge'
 import { BoardHeader } from './ui/BoardHeader'
 import { Home } from './ui/Home'
 
@@ -60,6 +61,8 @@ export function Root() {
 
   const loadPreview = useCallback((id: BoardId) => backend.boards.getPreview(user.id, id), [backend, user.id])
 
+  const signIn = backend.auth.signInWithGoogle
+
   if (route.page === 'board') {
     if (!board) return null
     return (
@@ -92,6 +95,7 @@ export function Root() {
       onStartFromFiles={(files, folder) => void startBoard(folder ?? undefined, files).catch(report)}
       onRename={(id, title) => void renameBoard(id, title).catch(report)}
       onDelete={(id) => void deleteBoard(id).catch(report)}
+      accountSlot={<AccountBadge user={user} onSignIn={signIn ? () => void signIn().catch(report) : undefined} />}
     />
   )
 }

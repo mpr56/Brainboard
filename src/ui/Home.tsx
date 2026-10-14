@@ -17,6 +17,8 @@ type Props = {
   onRename: (id: BoardId, title: string) => void
   onDelete: (id: BoardId) => void
   estimateStorage?: () => Promise<{ usage: number; quota: number } | null>
+  /** Shown at the foot of the sidebar: sign-in, or who is signed in. */
+  accountSlot?: React.ReactNode
 }
 
 const ink = '#1a1a1a'
@@ -50,6 +52,7 @@ export function Home({
   onRename,
   onDelete,
   estimateStorage = defaultEstimate,
+  accountSlot,
 }: Props) {
   const [query, setQuery] = useState('')
   const [previews, setPreviews] = useState<Map<BoardId, Shown>>(new Map())
@@ -149,6 +152,7 @@ export function Home({
             </div>
           </div>
         )} */}
+        {accountSlot && <div style={{ marginTop: 'auto' }}>{accountSlot}</div>}
       </nav>
 
       <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px 24px 32px' }}>
