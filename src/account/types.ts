@@ -6,15 +6,17 @@ export type UserId = string
 export type BoardId = string
 
 /**
- * Whoever is using the app. Today that is always an anonymous user minted on
- * first visit. Signing in with Google will link an identity to the same user
- * (Supabase's `linkIdentity`) rather than replace it, so the id — and every
- * board owned by it — survives the upgrade.
+ * Whoever is using the app. Every visit starts as an anonymous user; signing in
+ * with Google (cloud backend only) makes a *different* user — Better Auth does
+ * not keep the anonymous id — and the server moves the anonymous user's boards
+ * to it in the same step, so nothing is lost but the id changes.
  */
 export type User = {
   id: UserId
-  kind: 'anonymous'
+  kind: 'anonymous' | 'google'
   createdAt: number
+  email?: string
+  name?: string
 }
 
 export type Session = { user: User }
@@ -22,6 +24,8 @@ export type Session = { user: User }
 export interface AuthProvider {
   /** The current session, minting an anonymous user if there is none yet. */
   start(): Promise<Session>
+  /** Leaves the page for Google's sign-in, coming back signed in. Absent where unsupported. */
+  signInWithGoogle?: () => Promise<void>
 }
 
 export type BoardRecord = {
@@ -49,8 +53,8 @@ export type BoardPreview = {
  * are Yjs documents loaded by `Backend.persistBoard`.
  *
  * Every write names its user, and implementations refuse to touch a board the
- * user does not own: that is the shape a Supabase row-level-security policy
- * will enforce on the server.
+ * user does not own — the same rule the cloud Worker applies from the session
+ * (worker/src/boards.ts).
  */
 export interface BoardRepository {
   /** The user's boards, oldest first. */
@@ -66,8 +70,8 @@ export interface BoardRepository {
 
 /**
  * Everything that decides where data lives. The app is wired to exactly one of
- * these at startup (main.tsx); moving to Supabase is a second implementation of
- * this type, not a change to the code that uses it.
+ * these at startup (main.tsx): the in-browser one, or the Cloudflare one in
+ * account/cloud/. The code that uses it doesn't know which.
  */
 export type Backend = {
   auth: AuthProvider

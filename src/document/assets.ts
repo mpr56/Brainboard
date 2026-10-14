@@ -34,8 +34,8 @@ function openDb(): Promise<IDBDatabase> {
 }
 
 /**
- * Where asset bytes are kept. IndexedDB here; a Supabase Storage bucket is the
- * same two calls. Chosen once at startup (see account/types.ts `Backend`).
+ * Where asset bytes are kept. IndexedDB here; R2 behind the Worker in the cloud
+ * backend (account/cloud/cloudAssets.ts). Chosen once at startup (see account/types.ts `Backend`).
  */
 export type AssetBackend = {
   put(id: AssetId, blob: Blob): Promise<void>
