@@ -3,7 +3,7 @@ import type * as Y from 'yjs'
 import { createDoc } from './document/schema'
 import { createDocStore, type DocStore } from './document/store'
 import { createUndoManager } from './document/undo'
-import { persistDoc } from './document/persistence'
+import { persistDoc, type SyncStatus } from './document/persistence'
 import type { Edge, Node } from './types'
 
 export type Board = {
@@ -12,6 +12,8 @@ export type Board = {
   undo: Y.UndoManager
   ready: boolean
   error: string | null
+  /** Whether the server copy is in step; null when the backend keeps no server copy. */
+  status: SyncStatus | null
 }
 
 // A store that never touches a real Y.Doc, so it needs no teardown. Used only
@@ -43,6 +45,7 @@ export function useBoard(boardId: string, persist: typeof persistDoc = persistDo
   const [store, setStore] = useState<DocStore>(EMPTY_STORE)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState<SyncStatus | null>(null)
 
   useEffect(() => {
     // The store's Yjs subscriptions (`nodesMap.observeDeep`, etc.) are bound
@@ -89,6 +92,9 @@ export function useBoard(boardId: string, persist: typeof persistDoc = persistDo
       onFailure(err)
     }
 
+    setStatus(p?.status?.get() ?? null)
+    const unsubscribe = p?.status?.subscribe((s) => alive && setStatus(s))
+
     const timeoutId = p
       ? setTimeout(() => onFailure(new Error('Timed out waiting for the board to load.')), 8000)
       : null
@@ -103,10 +109,11 @@ export function useBoard(boardId: string, persist: typeof persistDoc = persistDo
     return () => {
       alive = false
       if (timeoutId !== null) clearTimeout(timeoutId)
+      unsubscribe?.()
       void p?.destroy()
       liveStore.destroy()
     }
   }, [doc, boardId, persist])
 
-  return { doc, store, undo, ready, error }
+  return { doc, store, undo, ready, error, status }
 }

@@ -83,7 +83,7 @@ type Props = {
  * selection and undo history all start fresh when the user switches boards.
  */
 export function App({ boardId, boardTitle, persist, onPreview, initialFiles }: Props) {
-  const { doc, store, undo, ready, error } = useBoard(boardId, persist)
+  const { doc, store, undo, ready, error, status } = useBoard(boardId, persist)
   const nodes = useNodes(store)
   const edges = useEdges(store)
   // A board-wide setting, not per-edge: the toolbar switch restyles every
@@ -896,6 +896,26 @@ export function App({ boardId, boardTitle, persist, onPreview, initialFiles }: P
           }}
         >
           {notice}
+        </div>
+      )}
+      {status === 'offline' && (
+        <div
+          role="status"
+          data-testid="sync-offline"
+          style={{
+            position: 'absolute',
+            left: 16,
+            bottom: 16,
+            zIndex: 40,
+            padding: '6px 10px',
+            background: '#1a1a1a',
+            color: '#fdfcf9',
+            borderRadius: 8,
+            font: '500 12px system-ui, sans-serif',
+            pointerEvents: 'none',
+          }}
+        >
+          Offline — changes are kept on this device and will sync when you reconnect.
         </div>
       )}
     </div>
