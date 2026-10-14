@@ -1,3 +1,4 @@
+import { routeAssets } from './assets'
 import { createAuth, sessionUserId } from './auth'
 import { routeBoards } from './boards'
 import { fail } from './http'
@@ -11,6 +12,7 @@ export default {
       const userId = await sessionUserId(env, request)
       if (!userId) return fail(401, 'Not signed in.')
       return (
+        (await routeAssets(env, userId, request, url)) ??
         (await routePreviews(env, userId, request, url)) ??
         (await routeBoards(env, userId, request, url)) ??
         fail(404, 'Not found.')
