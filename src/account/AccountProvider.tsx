@@ -3,21 +3,23 @@ import type { Backend, BoardId, BoardRecord, User } from './types'
 
 export const NEW_BOARD_TITLE = 'Untitled board'
 
+/**
+ * The signed-in user and the boards they own. Which board is open is not in
+ * here — that is the URL's (see route.ts).
+ */
 export type Account = {
   user: User
-  /** Oldest first. Never empty. */
+  /** Oldest first. Can be empty. */
   boards: BoardRecord[]
-  currentBoard: BoardRecord
   backend: Backend
-  openBoard: (id: BoardId) => Promise<void>
-  /** Creates a board and opens it. */
+  /** Records that a board was opened, for the home screen's ordering. */
+  markOpened: (id: BoardId) => Promise<void>
   createBoard: (title?: string) => Promise<BoardRecord>
   renameBoard: (id: BoardId, title: string) => Promise<void>
-  /** Deletes a board, opening another first if it was the open one. */
   deleteBoard: (id: BoardId) => Promise<void>
 }
 
-type Loaded = { user: User; boards: BoardRecord[]; currentId: BoardId }
+type Loaded = { user: User; boards: BoardRecord[] }
 
 const AccountContext = createContext<Account | null>(null)
 
@@ -29,17 +31,12 @@ export function useAccount(): Account {
 
 async function load(backend: Backend): Promise<Loaded> {
   const { user } = await backend.auth.start()
-  let boards = await backend.boards.list(user.id)
-  if (boards.length === 0) boards = [await backend.boards.create(user.id, NEW_BOARD_TITLE)]
-  return { user, boards, currentId: mostRecentlyOpened(boards).id }
+  return { user, boards: await backend.boards.list(user.id) }
 }
-
-const mostRecentlyOpened = (boards: BoardRecord[]) =>
-  boards.reduce((a, b) => (b.openedAt > a.openedAt ? b : a))
 
 /**
  * Starts the session, loads the user's boards, and renders `children` only
- * once there is a board to open — so nothing below ever sees "no user".
+ * once both are in — so nothing below ever sees "no user".
  */
 export function AccountProvider({ backend, children }: { backend: Backend; children: React.ReactNode }) {
   const [state, setState] = useState<Loaded | null>(null)
@@ -64,12 +61,12 @@ export function AccountProvider({ backend, children }: { backend: Backend; child
     }
   }, [backend])
 
-  const openBoard = useCallback(
+  const markOpened = useCallback(
     async (id: BoardId) => {
       const s = latest.current
       if (!s) return
       const t = Date.now()
-      setState({ ...s, currentId: id, boards: s.boards.map((b) => (b.id === id ? { ...b, openedAt: t } : b)) })
+      setState((prev) => prev && { ...prev, boards: prev.boards.map((b) => (b.id === id ? { ...b, openedAt: t } : b)) })
       await backend.boards.markOpened(s.user.id, id)
     },
     [backend],
@@ -80,7 +77,7 @@ export function AccountProvider({ backend, children }: { backend: Backend; child
       const s = latest.current
       if (!s) throw new Error('No session yet.')
       const board = await backend.boards.create(s.user.id, title)
-      setState((prev) => prev && { ...prev, boards: [...prev.boards, board], currentId: board.id })
+      setState((prev) => prev && { ...prev, boards: [...prev.boards, board] })
       return board
     },
     [backend],
@@ -101,25 +98,18 @@ export function AccountProvider({ backend, children }: { backend: Backend; child
     async (id: BoardId) => {
       const s = latest.current
       if (!s) return
-      let rest = s.boards.filter((b) => b.id !== id)
-      if (rest.length === 0) rest = [await backend.boards.create(s.user.id, NEW_BOARD_TITLE)]
-      const next = s.currentId === id ? mostRecentlyOpened(rest).id : s.currentId
       // Gone from the registry before it is gone from the screen, so a reload
-      // straight after cannot bring it back. Its contents can still be open
-      // here: dropping that database waits for the board to close, it does
-      // not fail.
+      // straight after cannot bring it back.
       await backend.boards.remove(s.user.id, id)
-      setState({ ...s, boards: rest, currentId: next })
-      if (next !== s.currentId) await backend.boards.markOpened(s.user.id, next)
+      setState((prev) => prev && { ...prev, boards: prev.boards.filter((b) => b.id !== id) })
     },
     [backend],
   )
 
   const account = useMemo<Account | null>(() => {
     if (!state) return null
-    const currentBoard = state.boards.find((b) => b.id === state.currentId) ?? state.boards[0]!
-    return { user: state.user, boards: state.boards, currentBoard, backend, openBoard, createBoard, renameBoard, deleteBoard }
-  }, [state, backend, openBoard, createBoard, renameBoard, deleteBoard])
+    return { user: state.user, boards: state.boards, backend, markOpened, createBoard, renameBoard, deleteBoard }
+  }, [state, backend, markOpened, createBoard, renameBoard, deleteBoard])
 
   if (error) {
     return (

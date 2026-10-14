@@ -84,3 +84,39 @@ describe('createLocalBoards', () => {
     expect((await boards.list(ALICE))[0]?.title).toBe('Mine')
   })
 })
+
+describe('board previews', () => {
+  it('saves and reads back a preview', async () => {
+    const { boards } = repo({ now: () => 7 })
+    const b = await boards.create(ALICE, 'X')
+    expect(await boards.getPreview(ALICE, b.id)).toBeNull()
+    await boards.savePreview(ALICE, b.id, { image: null, nodes: 3, media: 1 })
+    expect(await boards.getPreview(ALICE, b.id)).toEqual({ image: null, nodes: 3, media: 1, savedAt: 7 })
+  })
+
+  it('keeps the picture', async () => {
+    const { boards } = repo()
+    const b = await boards.create(ALICE, 'X')
+    await boards.savePreview(ALICE, b.id, { image: new Blob(['png'], { type: 'image/png' }), nodes: 1, media: 0 })
+    const image = (await boards.getPreview(ALICE, b.id))?.image
+    expect(image?.type).toBe('image/png')
+    expect(image?.size).toBe(3)
+  })
+
+  it('drops the preview with its board', async () => {
+    const { boards } = repo()
+    const b = await boards.create(ALICE, 'X')
+    await boards.savePreview(ALICE, b.id, { image: null, nodes: 1, media: 0 })
+    await boards.remove(ALICE, b.id)
+    const again = await boards.create(ALICE, 'Y')
+    expect(again.id).not.toBe(b.id)
+    await expect(boards.getPreview(ALICE, b.id)).rejects.toThrow()
+  })
+
+  it('keeps previews to their owner', async () => {
+    const { boards } = repo()
+    const b = await boards.create(ALICE, 'X')
+    await expect(boards.savePreview(BOB, b.id, { image: null, nodes: 0, media: 0 })).rejects.toThrow()
+    await expect(boards.getPreview(BOB, b.id)).rejects.toThrow()
+  })
+})

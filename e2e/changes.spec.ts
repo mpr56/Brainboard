@@ -1,7 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
+import { waitForPersisted } from './persisted'
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/')
+  // Straight into the board every install starts with; `/` is the home screen.
+  await page.goto('/#/b/default')
   await page.evaluate(async () => {
     for (const db of await indexedDB.databases()) if (db.name) indexedDB.deleteDatabase(db.name)
   })
@@ -271,4 +273,27 @@ test('media sits on the board with no frame round it', async ({ page }) => {
   const box = (await node.boundingBox())!
   expect(Math.abs(img.width - box.width)).toBeLessThan(1)
   expect(Math.abs(img.height - box.height)).toBeLessThan(1)
+})
+
+test('a board opens fitted to its content, even far from where a view starts', async ({ page }) => {
+  // Build far from the origin, where a fresh view would open.
+  await page.mouse.move(640, 400)
+  await page.mouse.wheel(4000, 3000)
+  await root(page)
+  await spawn(page, 0, 'e')
+  // Node ids are strings in the stored update, so the newest one on disk means both are.
+  const last = await page.locator('[data-node-id]').nth(1).getAttribute('data-node-id')
+  await waitForPersisted(page, 'default', last!)
+
+  await page.reload()
+  await expect(page.locator('[data-node-id]')).toHaveCount(2)
+  const view = page.viewportSize()!
+  for (const box of await page.locator('[data-node-id]').evaluateAll((els) =>
+    els.map((el) => el.getBoundingClientRect().toJSON() as DOMRect),
+  )) {
+    expect(box.left).toBeGreaterThanOrEqual(0)
+    expect(box.top).toBeGreaterThanOrEqual(0)
+    expect(box.right).toBeLessThanOrEqual(view.width)
+    expect(box.bottom).toBeLessThanOrEqual(view.height)
+  }
 })

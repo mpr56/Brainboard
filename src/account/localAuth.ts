@@ -34,7 +34,7 @@ export function createLocalAuth(open: OpenDb, now: () => number = Date.now): Aut
 
       const { id, kind, createdAt } = user
       const stored: StoredUser = { id, kind, createdAt, lastSeenAt: now() }
-      await write(open, USERS, (s) => s.put(stored))
+      await write(open, USERS, (s) => s(USERS).put(stored))
       writeCookie(SESSION_COOKIE, id, MAX_AGE_SECONDS)
       return { user: { id, kind, createdAt } }
     },

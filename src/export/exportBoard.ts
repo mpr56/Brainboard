@@ -7,7 +7,7 @@ import { PX_TO_PT, jpegToPdf } from './pdf'
 type Picture = CanvasImageSource & { width: number; height: number }
 
 /** Decodes every image node's picture, skipping any whose file is missing. */
-async function loadImages(scene: Omit<Scene, 'images'>): Promise<Map<AssetId, Picture>> {
+export async function loadImages(scene: Omit<Scene, 'images'>): Promise<Map<AssetId, Picture>> {
   const out = new Map<AssetId, Picture>()
   await Promise.all(
     scene.nodes
@@ -28,7 +28,7 @@ async function loadImages(scene: Omit<Scene, 'images'>): Promise<Map<AssetId, Pi
   return out
 }
 
-const toBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) =>
+export const toBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) =>
   new Promise<Blob>((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('The browser could not encode the image.'))), type, quality),
   )

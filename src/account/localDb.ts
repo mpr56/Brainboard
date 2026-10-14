@@ -9,6 +9,8 @@ export const USERS = 'users'
 export const BOARDS = 'boards'
 /** Odd flags the local backend needs to remember, keyed by name. */
 export const META = 'meta'
+/** Home-screen previews, keyed by board id. */
+export const PREVIEWS = 'previews'
 
 export type OpenDb = () => Promise<IDBDatabase>
 
@@ -18,12 +20,15 @@ export function localDb(name = ACCOUNTS_DB): OpenDb {
   return () => {
     if (!db) {
       db = new Promise((resolve, reject) => {
-        const req = indexedDB.open(name, 1)
-        req.onupgradeneeded = () => {
+        const req = indexedDB.open(name, 2)
+        req.onupgradeneeded = (e) => {
           const d = req.result
-          d.createObjectStore(USERS, { keyPath: 'id' })
-          d.createObjectStore(BOARDS, { keyPath: 'id' }).createIndex('ownerId', 'ownerId')
-          d.createObjectStore(META)
+          if (e.oldVersion < 1) {
+            d.createObjectStore(USERS, { keyPath: 'id' })
+            d.createObjectStore(BOARDS, { keyPath: 'id' }).createIndex('ownerId', 'ownerId')
+            d.createObjectStore(META)
+          }
+          if (e.oldVersion < 2) d.createObjectStore(PREVIEWS)
         }
         req.onsuccess = () => resolve(req.result)
         req.onerror = () => {
@@ -66,16 +71,20 @@ export async function getAllByIndex<T>(
   >
 }
 
-/** Writes in one transaction, resolving once it has committed. */
+/**
+ * Writes to one or more stores in a single transaction, resolving once it has
+ * committed. Several stores at once is how a change that must not be seen
+ * half-made stays whole — a reload mid-way rolls all of it back.
+ */
 export async function write(
   open: OpenDb,
-  store: string,
-  fn: (s: IDBObjectStore) => void,
+  stores: string | string[],
+  fn: (store: (name: string) => IDBObjectStore) => void,
 ): Promise<void> {
   const db = await open()
   await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(store, 'readwrite')
-    fn(tx.objectStore(store))
+    const tx = db.transaction(stores, 'readwrite')
+    fn((name) => tx.objectStore(name))
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error ?? new Error('Could not save to the account store.'))
     tx.onabort = () => reject(tx.error ?? new Error('Saving to the account store was aborted.'))

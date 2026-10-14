@@ -2,7 +2,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { waitForPersisted } from './persisted'
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/')
+  // Straight into the board every install starts with; `/` is the home screen.
+  await page.goto('/#/b/default')
   // Each test starts from a clean board.
   await page.evaluate(async () => {
     for (const db of await indexedDB.databases()) if (db.name) indexedDB.deleteDatabase(db.name)

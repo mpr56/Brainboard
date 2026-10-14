@@ -20,13 +20,15 @@ import {
 } from './document/palette'
 import { metaMap, transact } from './document/schema'
 import { exportBoard } from './export/exportBoard'
+import type { Scene } from './export/draw'
+import { previewCounts, renderThumbnail } from './export/thumbnail'
 import { DEFAULT_EXPORT, exportContent, type ExportOptions } from './export/layout'
 import { pickEdge, routeFor, routeMidpoint, type EdgeRoute } from './geometry/edgeRoute'
 import { MEDIA_ACCEPT, ingestFiles } from './media/ingest'
 import { useEdgeStyle, useEdges, useNodes } from './document/hooks'
 import { setEdgeStyle } from './document/settings'
 import { useBoard } from './useBoard'
-import type { Backend } from './account/types'
+import type { Backend, BoardPreview } from './account/types'
 import { ConnectorLayer } from './render/ConnectorLayer'
 import { nodePort } from './geometry/anchors'
 import { routeEdge } from './geometry/routeEdge'
@@ -59,6 +61,8 @@ import type { Anchor, EdgeId, Node, NodeId, Point, Rect } from './types'
 const EDGE_PICK_PX = 8
 /** How long the Fit button's camera move takes. */
 const FIT_MS = 260
+/** How long edits must settle before the home-screen picture is redrawn. */
+const PREVIEW_IDLE_MS = 1500
 
 /** A gesture that does nothing — what a press that picked a link hands its move/up to. */
 const idleTool: Tool = { name: 'idle' }
@@ -68,13 +72,17 @@ type Props = {
   /** Names the exported file. Falls back to the title stored in the document. */
   boardTitle?: string
   persist?: Backend['persistBoard']
+  /** Saves the home screen's picture of the board. Called once edits settle, and on the way out. */
+  onPreview?: (preview: Omit<BoardPreview, 'savedAt'>) => Promise<void>
+  /** Files to add as soon as the board has loaded — a board started from a drop on the home screen. */
+  initialFiles?: File[]
 }
 
 /**
  * One open board. Mounted per board (keyed by id in Root), so camera,
  * selection and undo history all start fresh when the user switches boards.
  */
-export function App({ boardId, boardTitle, persist }: Props) {
+export function App({ boardId, boardTitle, persist, onPreview, initialFiles }: Props) {
   const { doc, store, undo, ready, error } = useBoard(boardId, persist)
   const nodes = useNodes(store)
   const edges = useEdges(store)
@@ -543,6 +551,28 @@ export function App({ boardId, boardTitle, persist }: Props) {
     return () => window.removeEventListener('paste', onPaste)
   }, [addMedia, editingId, viewportCentre])
 
+  // A board started from files dropped on the home screen: add them once it
+  // has loaded. The open-time fit below waits for them.
+  const initialTaken = useRef(false)
+  const [awaitingFiles, setAwaitingFiles] = useState(() => (initialFiles?.length ?? 0) > 0)
+  useEffect(() => {
+    if (!ready || initialTaken.current || !initialFiles?.length) return
+    initialTaken.current = true
+    void addMedia(initialFiles, { x: 0, y: 0 }).finally(() => setAwaitingFiles(false))
+  }, [ready, initialFiles, addMedia])
+
+  // Every board opens framed to fit. The camera is per-viewer and never
+  // stored, so without this a board opens wherever the origin happens to be —
+  // which can be nowhere near its content. A cut, not Fit's eased glide: there
+  // is no "where you were" to show on open. Waits for the viewport to be
+  // measured, and for any dropped files to land.
+  const [fitOnOpen, setFitOnOpen] = useState(true)
+  useEffect(() => {
+    if (!fitOnOpen || !ready || viewport.w === 0 || awaitingFiles) return
+    setFitOnOpen(false)
+    if (nodes.length > 0) setCamera(fitCamera(boundsOf(nodes), viewport))
+  }, [fitOnOpen, ready, viewport, awaitingFiles, nodes])
+
   useEffect(() => {
     if (!notice) return
     const id = setTimeout(() => setNotice(null), 4000)
@@ -571,6 +601,36 @@ export function App({ boardId, boardTitle, persist }: Props) {
     () => resolveNodeColors(nodes, edges, edgeColors),
     [nodes, edges, edgeColors],
   )
+
+  // The home screen's picture of this board. Redrawn once edits have settled
+  // for a moment, and again on the way out so leaving straight after an edit
+  // still shows it. Read through refs: the leave-time save runs from an
+  // unmount, long after the render that scheduled it.
+  const scene = useRef<Omit<Scene, 'images'> | null>(null)
+  scene.current = ready ? { nodes, edges, edgeColors, nodeColors, kind: edgeStyleKind } : null
+  const onPreviewRef = useRef(onPreview)
+  onPreviewRef.current = onPreview
+  // What the last saved picture showed, so leaving an untouched board redraws nothing.
+  const savedFor = useRef<{ nodes: Node[]; edges: unknown; kind: unknown } | null>(null)
+  const savePreview = useCallback(async () => {
+    const s = scene.current
+    const save = onPreviewRef.current
+    if (!s || !save) return
+    const last = savedFor.current
+    if (last && last.nodes === s.nodes && last.edges === s.edges && last.kind === s.kind) return
+    savedFor.current = { nodes: s.nodes, edges: s.edges, kind: s.kind }
+    try {
+      await save({ image: await renderThumbnail(s), ...previewCounts(s.nodes) })
+    } catch (err) {
+      console.warn('[preview]', err)
+    }
+  }, [])
+  useEffect(() => {
+    if (!ready) return
+    const id = setTimeout(() => void savePreview(), PREVIEW_IDLE_MS)
+    return () => clearTimeout(id)
+  }, [ready, nodes, edges, edgeStyleKind, savePreview])
+  useEffect(() => () => void savePreview(), [savePreview])
 
   const setProps = useCallback(
     (id: NodeId, props: Record<string, unknown>) => updateNode(doc, id, { props }, 'user'),

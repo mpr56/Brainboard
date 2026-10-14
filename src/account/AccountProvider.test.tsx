@@ -29,64 +29,56 @@ async function mount(b = backend()) {
   function Probe() {
     const account = useAccount()
     seen.current = account
-    return <div data-testid="current">{account.currentBoard.title}</div>
+    return <div data-testid="titles">{account.boards.map((b) => b.title).join(',')}</div>
   }
   const view = render(
     <AccountProvider backend={b}>
       <Probe />
     </AccountProvider>,
   )
-  await screen.findByTestId('current')
+  await screen.findByTestId('titles')
   return { account: () => seen.current!, view, backend: b }
 }
 
 describe('AccountProvider', () => {
-  it('opens the first user’s adopted board', async () => {
+  it('loads the first user’s adopted board', async () => {
     const { account } = await mount()
     expect(account().user.kind).toBe('anonymous')
     expect(account().boards.map((b) => b.id)).toEqual([LEGACY_BOARD_ID])
-    expect(account().currentBoard.id).toBe(LEGACY_BOARD_ID)
   })
 
-  it('switches to a board it creates', async () => {
+  it('adds a board it creates', async () => {
     const { account } = await mount()
-    await act(() => account().createBoard())
-    expect(account().boards).toHaveLength(2)
-    expect(account().currentBoard.id).toBe(account().boards[1]!.id)
+    const made = await act(() => account().createBoard())
+    expect(account().boards.map((b) => b.id)).toEqual([LEGACY_BOARD_ID, made.id])
   })
 
-  it('reopens the most recently opened board on the next load', async () => {
+  it('remembers when a board was opened', async () => {
     const b = backend()
     const first = await mount(b)
     const made = await act(() => first.account().createBoard())
-    await act(() => first.account().openBoard(LEGACY_BOARD_ID))
-    await act(() => first.account().openBoard(made.id))
+    const before = first.account().boards.find((x) => x.id === LEGACY_BOARD_ID)!.openedAt
+    await act(() => first.account().markOpened(LEGACY_BOARD_ID))
     first.view.unmount()
 
     const second = await mount(b)
-    expect(second.account().currentBoard.id).toBe(made.id)
+    const reloaded = second.account().boards
+    expect(reloaded.find((x) => x.id === LEGACY_BOARD_ID)!.openedAt).toBeGreaterThan(before)
+    expect(reloaded.find((x) => x.id === LEGACY_BOARD_ID)!.openedAt).toBeGreaterThan(
+      reloaded.find((x) => x.id === made.id)!.openedAt,
+    )
   })
 
   it('renames a board', async () => {
     const { account } = await mount()
     await act(() => account().renameBoard(LEGACY_BOARD_ID, 'Ideas'))
-    expect(screen.getByTestId('current').textContent).toBe('Ideas')
+    expect(screen.getByTestId('titles').textContent).toBe('Ideas')
   })
 
-  it('moves off a board that is deleted while open', async () => {
-    const { account } = await mount()
-    await act(() => account().createBoard())
-    const open = account().currentBoard.id
-    await act(() => account().deleteBoard(open))
-    expect(account().boards.map((b) => b.id)).toEqual([LEGACY_BOARD_ID])
-    expect(account().currentBoard.id).toBe(LEGACY_BOARD_ID)
-  })
-
-  it('never leaves a user with no board', async () => {
+  it('can delete every board', async () => {
     const { account } = await mount()
     await act(() => account().deleteBoard(LEGACY_BOARD_ID))
-    expect(account().boards).toHaveLength(1)
-    expect(account().currentBoard.id).not.toBe(LEGACY_BOARD_ID)
+    expect(account().boards).toEqual([])
   })
 
   it('starts one session under StrictMode’s double effect run', async () => {

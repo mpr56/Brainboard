@@ -33,6 +33,17 @@ export type BoardRecord = {
   openedAt: number
 }
 
+/** What a home-screen card shows of a board without opening it. */
+export type BoardPreview = {
+  /** A small picture of the board; null for an empty board. */
+  image: Blob | null
+  /** Text nodes on the board. */
+  nodes: number
+  /** Media nodes on the board. */
+  media: number
+  savedAt: number
+}
+
 /**
  * Which boards a user owns, and their titles. Not the boards' contents — those
  * are Yjs documents loaded by `Backend.persistBoard`.
@@ -47,8 +58,10 @@ export interface BoardRepository {
   create(userId: UserId, title: string): Promise<BoardRecord>
   rename(userId: UserId, boardId: BoardId, title: string): Promise<void>
   markOpened(userId: UserId, boardId: BoardId): Promise<void>
-  /** Removes the board and its contents. */
+  /** Removes the board, its contents and its preview. */
   remove(userId: UserId, boardId: BoardId): Promise<void>
+  savePreview(userId: UserId, boardId: BoardId, preview: Omit<BoardPreview, 'savedAt'>): Promise<void>
+  getPreview(userId: UserId, boardId: BoardId): Promise<BoardPreview | null>
 }
 
 /**
