@@ -98,7 +98,6 @@ export function wrapText(text: string, maxW: number, measure: (s: string) => num
         continue
       }
       if (line) out.push(line.trimEnd())
-      line = ''
       // A word wider than the whole line is split wherever it has to be.
       let rest = word
       while (measure(rest.trimEnd()) > maxW && rest.length > 1) {
