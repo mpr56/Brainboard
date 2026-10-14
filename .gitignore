@@ -8,3 +8,5 @@ playwright-report/
 .DS_Store
 .claude/
 tsconfig.tsbuildinfo
+.wrangler/
+worker/.dev.vars
