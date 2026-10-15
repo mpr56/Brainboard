@@ -100,6 +100,7 @@ up where it stopped: finished boards are skipped, and a half-copied one is compl
 | Zoom | ⌘/Ctrl + wheel, or the toolbar's zoom buttons |
 | Fit everything | **Fit**, or `⇧1` — frames the whole board, centred, as large as it will go (up to 150%) |
 | Export | **Export** — PNG, JPEG or PDF; board-coloured, white or transparent (PNG) background; plain, dotted, grid or lined paper; 1–3× resolution; the whole board or just the selection |
+| Save / copy a whole board | **Export** → **Download board file (.json)** saves everything on the board, media included; **Import** on home makes a new board from that file, identical to the original |
 | Undo / redo | `⌘Z` / `⇧⌘Z`, or the toolbar buttons |
 
 A swipe to **Media** opens the file chooser only within a few seconds of the double-click — browsers
@@ -156,7 +157,7 @@ src/
   tools/        select / connect / resize state machines over normalized world events
   render/       World layer, node views (text and media), SVG connectors, screen-space overlay
   media/        File ingest: classify, measure, store, and create media nodes
-  export/       Board → canvas painter, and a minimal one-image PDF writer
+  export/       Board → canvas painter, a minimal one-image PDF writer, and board files (JSON export/import)
   ui/           Toolbar, format bar, colour wheel, link menu, export dialog
 ```
 
@@ -206,5 +207,8 @@ Other gaps in this milestone:
 - Time-anchored links (a link from a moment in a video) are not built.
 - Export draws a video as a placeholder frame with a play button, and a PDF as its title strip; it
   does not render video frames or PDF pages.
+- A board file carries its media as base64 inside the JSON, so a board with large videos makes a
+  large file (about a third bigger than the media itself). It holds the board as it is, not its
+  undo history.
 - If IndexedDB is unavailable (private browsing, exhausted quota), the board reports an error
   rather than running in memory.

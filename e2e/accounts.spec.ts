@@ -186,3 +186,58 @@ test('a board from before accounts is adopted with its content', async ({ page, 
   await card(page, 'Untitled board').getByTestId('board-card-open').click()
   await expect(page.getByText('from before accounts')).toBeVisible()
 })
+
+/** Downloads the open board as a board file and returns it parsed. */
+async function downloadBoardFile(page: Page) {
+  await page.getByTestId('export').click()
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('export-board-file').click()])
+  expect(download.suggestedFilename()).toMatch(/\.brainboard\.json$/)
+  const chunks: Buffer[] = []
+  for await (const chunk of await download.createReadStream()) chunks.push(chunk as Buffer)
+  return { path: await download.path(), file: JSON.parse(Buffer.concat(chunks).toString('utf8')) }
+}
+
+test('a board exported as a board file imports, in a wiped browser, exactly as it was', async ({ page }) => {
+  await newBoard(page, 'Round trip')
+  await addText(page, 'carried over')
+  await page.getByTestId('media-input').setInputFiles('e2e/fixtures/dot.png')
+  await expect(page.getByTestId('image-node').locator('img')).toHaveCount(1)
+  const original = await downloadBoardFile(page)
+  expect(Object.keys(original.file.files)).toHaveLength(1)
+
+  // Nothing of the original left to borrow from: boards, media and session.
+  await page.evaluate(async () => {
+    for (const db of await indexedDB.databases()) if (db.name) indexedDB.deleteDatabase(db.name)
+  })
+  await page.context().clearCookies()
+  await page.goto('/')
+  await page.reload()
+  await expect(page.getByTestId('home')).toBeVisible()
+
+  await page.getByTestId('home-import-input').setInputFiles(original.path)
+  await expect(page.getByTestId('toolbar')).toBeVisible()
+  await expect(page.getByTestId('board-title')).toContainText('Round trip')
+  await expect(page.getByText('carried over')).toBeVisible()
+  const img = page.getByTestId('image-node').locator('img')
+  await expect(img).toHaveCount(1)
+  await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1)
+
+  // Exported again, the board is the same file — but for the media's new id.
+  const again = await downloadBoardFile(page)
+  const [oldId] = Object.keys(original.file.files)
+  const [newId] = Object.keys(again.file.files)
+  expect(again.file.files[newId!]).toEqual(original.file.files[oldId!])
+  const withoutIds = (rows: Record<string, Record<string, unknown>>) =>
+    Object.fromEntries(Object.entries(rows).map(([id, { assetId: _, ...rest }]) => [id, rest]))
+  expect(withoutIds(again.file.nodes)).toEqual(withoutIds(original.file.nodes))
+  expect(again.file.edges).toEqual(original.file.edges)
+  expect(again.file.meta).toEqual(original.file.meta)
+
+  await goHome(page)
+  await expect(page.getByTestId('board-card')).toHaveCount(2)
+})
+
+test('a file that is not a board file is refused on home', async ({ page }) => {
+  await page.getByTestId('home-import-input').setInputFiles({ name: 'x.json', mimeType: 'application/json', buffer: Buffer.from('{"a":1}') })
+  await expect(page.getByTestId('home-import-error')).toContainText('not a board file')
+})
