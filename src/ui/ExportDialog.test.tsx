@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_EXPORT } from '../export/layout'
 import { ExportDialog } from './ExportDialog'
@@ -53,5 +53,23 @@ describe('ExportDialog', () => {
     fireEvent.click(screen.getByTestId('export-go'))
     expect(await screen.findByTestId('export-error')).toHaveProperty('textContent', 'nope')
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('offers the board file only when it can make one, and closes once it is downloaded', async () => {
+    dialog()
+    expect(screen.queryByTestId('export-board-file')).toBeNull()
+    cleanup()
+    const onExportFile = vi.fn().mockResolvedValue(undefined)
+    const { onExport, onClose } = dialog({ onExportFile })
+    fireEvent.click(screen.getByTestId('export-board-file'))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(onExportFile).toHaveBeenCalled()
+    expect(onExport).not.toHaveBeenCalled()
+  })
+
+  it('shows why a board file could not be made', async () => {
+    dialog({ onExportFile: vi.fn().mockRejectedValue(new Error('no media')) })
+    fireEvent.click(screen.getByTestId('export-board-file'))
+    expect(await screen.findByTestId('export-error')).toHaveProperty('textContent', 'no media')
   })
 })

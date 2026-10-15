@@ -19,7 +19,7 @@ import {
   resolveNodeColors,
 } from './document/palette'
 import { metaMap, transact } from './document/schema'
-import { exportBoard } from './export/exportBoard'
+import { exportBoard, exportBoardFile } from './export/exportBoard'
 import type { Scene } from './export/draw'
 import { previewCounts, renderThumbnail } from './export/thumbnail'
 import { DEFAULT_EXPORT, exportContent, type ExportOptions } from './export/layout'
@@ -100,6 +100,10 @@ export function App({ boardId, boardTitle, persist, onPreview, initialFiles }: P
   const [exportOpen, setExportOpen] = useState(false)
   // Remembered between openings, so a second export starts where the first left off.
   const [exportOptions, setExportOptions] = useState<ExportOptions>(DEFAULT_EXPORT)
+  const exportTitle = () => {
+    const stored = metaMap(doc).get('title')
+    return boardTitle ?? (typeof stored === 'string' ? stored : 'board')
+  }
   // A short message at the bottom of the screen, for things that went wrong
   // out of sight (a file that could not be added).
   const [notice, setNotice] = useState<string | null>(null)
@@ -849,13 +853,9 @@ export function App({ boardId, boardTitle, persist, onPreview, initialFiles }: P
           onExport={async (options) => {
             setExportOptions(options)
             const content = exportContent(nodes, edges, options.scope, selection)
-            const stored = metaMap(doc).get('title')
-            await exportBoard(
-              { ...content, edgeColors, nodeColors, kind: edgeStyleKind },
-              options,
-              boardTitle ?? (typeof stored === 'string' ? stored : 'board'),
-            )
+            await exportBoard({ ...content, edgeColors, nodeColors, kind: edgeStyleKind }, options, exportTitle())
           }}
+          onExportFile={() => exportBoardFile(doc, exportTitle())}
         />
       )}
       {picker && (

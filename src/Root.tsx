@@ -3,6 +3,7 @@ import { App } from './App'
 import { useAccount } from './account/AccountProvider'
 import { IMPORT_OFFERED_KEY } from './account/cloud/importLocal'
 import type { BoardId, BoardPreview, BoardRecord } from './account/types'
+import { importBoardFile, parseBoardFile } from './export/boardFile'
 import { navigate, useRoute } from './route'
 import { AccountBadge } from './ui/AccountBadge'
 import { BoardHeader } from './ui/BoardHeader'
@@ -66,6 +67,19 @@ export function Root() {
       navigate({ page: 'board', boardId: made.id })
     },
     [createBoard],
+  )
+
+  const importBoard = useCallback(
+    async (file: File) => {
+      const id = await importBoardFile(parseBoardFile(await file.text()), {
+        createBoard,
+        deleteBoard,
+        persistBoard: backend.persistBoard,
+        putAsset: (assetId, blob) => backend.assets.put(assetId, blob),
+      })
+      navigate({ page: 'board', boardId: id })
+    },
+    [backend, createBoard, deleteBoard],
   )
 
   const savePreview = useCallback(
@@ -140,6 +154,7 @@ export function Root() {
         onStartFromFiles={(files, folder) => void startBoard(folder ?? undefined, files).catch(report)}
         onRename={(id, title) => void renameBoard(id, title).catch(report)}
         onDelete={(id) => void deleteBoard(id).catch(report)}
+        onImportFile={importBoard}
         accountSlot={<AccountBadge user={user} onSignIn={signIn ? () => void signIn().catch(report) : undefined} />}
       />
       {importable.length > 0 && (

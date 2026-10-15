@@ -102,7 +102,7 @@ export function Toolbar({
         </button>
       )}
       {onExport && (
-        <button data-testid="export" title="Export as an image or PDF" style={button(false)} onClick={onExport}>
+        <button data-testid="export" title="Export as an image, a PDF or a board file" style={button(false)} onClick={onExport}>
           Export
         </button>
       )}
