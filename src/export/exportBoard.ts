@@ -1,5 +1,7 @@
-import { assetUrl } from '../document/assets'
+import type * as Y from 'yjs'
+import { assetUrl, getAssetBlob } from '../document/assets'
 import type { AssetId } from '../types'
+import { serializeBoard } from './boardFile'
 import { drawScene, type Scene } from './draw'
 import { clampScale, effectiveOptions, exportFrame, exportFileName, type ExportOptions } from './layout'
 import { PX_TO_PT, jpegToPdf } from './pdf'
@@ -84,4 +86,13 @@ export async function exportBoard(
     { w: frame.w * PX_TO_PT, h: frame.h * PX_TO_PT },
   )
   download(new Blob([pdf], { type: 'application/pdf' }), name)
+}
+
+/**
+ * Downloads the whole board as a board file (see boardFile.ts): everything in
+ * it, media included, to be imported from the home screen later.
+ */
+export async function exportBoardFile(doc: Y.Doc, title: string): Promise<void> {
+  const file = await serializeBoard(doc, title, getAssetBlob)
+  download(new Blob([JSON.stringify(file)], { type: 'application/json' }), exportFileName(title, 'board'))
 }

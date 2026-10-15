@@ -1,5 +1,6 @@
 import { boundsOf } from '../camera'
 import type { Edge, Node, NodeId, Rect } from '../types'
+import { BOARD_FILE_EXTENSION } from './boardFile'
 
 export type ExportFormat = 'png' | 'jpeg' | 'pdf'
 export type ExportBackground = 'board' | 'white' | 'transparent'
@@ -114,8 +115,9 @@ export function wrapText(text: string, maxW: number, measure: (s: string) => num
 }
 
 /** A file name for the export, from the board's title and today's date. */
-export function exportFileName(title: string, format: ExportFormat, now = new Date()): string {
+export function exportFileName(title: string, format: ExportFormat | 'board', now = new Date()): string {
   const safe = title.trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '-') || 'board'
   const day = now.toISOString().slice(0, 10)
+  if (format === 'board') return `${safe}-${day}${BOARD_FILE_EXTENSION}`
   return `${safe}-${day}.${format === 'jpeg' ? 'jpg' : format}`
 }
