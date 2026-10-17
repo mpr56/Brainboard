@@ -1,8 +1,9 @@
 # Brainstorm Canvas
 
 A local-first brainstorming canvas: an infinite pan/zoom board of text nodes joined by connectors,
-with undo/redo and automatic persistence to IndexedDB. Everything runs in the browser — no server,
-no account, no network path.
+with undo/redo and automatic persistence to IndexedDB. It runs entirely in the browser by default;
+built for the cloud backend, boards also sync to a Cloudflare Worker under an anonymous or Google
+account (see [Backends](#backends)).
 
 This repository contains **Plan 1 (canvas core)** and the first part of **Plan 2**: media nodes
 (image, GIF, video, audio, PDF). Time-anchored links are not built yet.
@@ -30,6 +31,49 @@ npm run preview    # serve the production build on http://localhost:4173
 
 The board lives in IndexedDB under `brainstorm-canvas/default`. Deleting that database resets it.
 
+## Backends
+
+The app runs against one of two backends, picked at build time in `src/main.tsx`:
+
+- **local** (`npm run dev`, unit tests, e2e): everything in this browser's IndexedDB.
+- **cloud** (`npm run dev:cloud`, `npm run build:cloud`, `npm run deploy`): the Cloudflare Worker in
+  `worker/`. Better Auth (anonymous users, Google sign-in) on D1, media and previews in R2, and one
+  Durable Object per board holding its Yjs document. The browser keeps an IndexedDB copy of each
+  board and file as a cache, so boards open instantly and keep working offline. The first cloud start
+  offers to upload boards already in this browser.
+
+`worker/` is its own npm package (it needs vitest 4 and the Workers runtime):
+
+```sh
+cd worker
+npm install
+npm test           # worker tests, in workerd with local D1/R2/Durable Objects
+npm run typecheck  # regenerates worker-configuration.d.ts, then tsc
+```
+
+### Running the cloud backend locally
+
+1. `cd worker && cp .dev.vars.example .dev.vars`, and set `BETTER_AUTH_SECRET` (`openssl rand -base64 32`).
+2. From the root: `npx wrangler d1 migrations apply brainboard --local -c worker/wrangler.jsonc --persist-to .wrangler/state`.
+3. `npm run dev:cloud`, open http://localhost:5173.
+4. `npx playwright test e2e/cloud.spec.ts` runs the cloud smoke test against it (it skips itself on the local backend).
+
+Google sign-in needs an OAuth client (Web application) from Google Cloud with redirect URIs
+`http://localhost:5173/api/auth/callback/google` and `https://<your-worker-host>/api/auth/callback/google`.
+Put its id and secret in `worker/.dev.vars`. Without them the "Sign in with Google" button returns an error.
+
+### Deploying
+
+1. `npx wrangler login`.
+2. `npx wrangler d1 create brainboard`, and paste the database id into `worker/wrangler.jsonc` in place of `"local"`.
+3. `npx wrangler r2 bucket create brainboard`.
+4. `cd worker && npm run migrate:remote`.
+5. From `worker/`: `npx wrangler secret put BETTER_AUTH_SECRET`, and the same for `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+6. `npm run deploy` from the root.
+
+If uploading this browser's boards fails partway, the offer comes back on the next start and picks
+up where it stopped: finished boards are skipped, and a half-copied one is completed in place.
+
 ## Using it
 
 | Action | How |
@@ -56,6 +100,7 @@ The board lives in IndexedDB under `brainstorm-canvas/default`. Deleting that da
 | Zoom | ⌘/Ctrl + wheel, or the toolbar's zoom buttons |
 | Fit everything | **Fit**, or `⇧1` — frames the whole board, centred, as large as it will go (up to 150%) |
 | Export | **Export** — PNG, JPEG or PDF; board-coloured, white or transparent (PNG) background; plain, dotted, grid or lined paper; 1–3× resolution; the whole board or just the selection |
+| Save / copy a whole board | **Export** → **Download board file (.json)** saves everything on the board, media included; **Import** on home makes a new board from that file, identical to the original |
 | Undo / redo | `⌘Z` / `⇧⌘Z`, or the toolbar buttons |
 
 A swipe to **Media** opens the file chooser only within a few seconds of the double-click — browsers
@@ -112,7 +157,7 @@ src/
   tools/        select / connect / resize state machines over normalized world events
   render/       World layer, node views (text and media), SVG connectors, screen-space overlay
   media/        File ingest: classify, measure, store, and create media nodes
-  export/       Board → canvas painter, and a minimal one-image PDF writer
+  export/       Board → canvas painter, a minimal one-image PDF writer, and board files (JSON export/import)
   ui/           Toolbar, format bar, colour wheel, link menu, export dialog
 ```
 
@@ -162,5 +207,8 @@ Other gaps in this milestone:
 - Time-anchored links (a link from a moment in a video) are not built.
 - Export draws a video as a placeholder frame with a play button, and a PDF as its title strip; it
   does not render video frames or PDF pages.
+- A board file carries its media as base64 inside the JSON, so a board with large videos makes a
+  large file (about a third bigger than the media itself). It holds the board as it is, not its
+  undo history.
 - If IndexedDB is unavailable (private browsing, exhausted quota), the board reports an error
   rather than running in memory.

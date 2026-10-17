@@ -4,25 +4,32 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:cloud": "VITE_BACKEND=cloud vite",
     "build": "tsc -b && vite build",
+    "build:cloud": "tsc -b && VITE_BACKEND=cloud vite build",
+    "deploy": "npm run build:cloud && wrangler deploy",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
-    "lint": "eslint src e2e",
+    "lint": "eslint src e2e worker/src worker/test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "better-auth": "^1.7.7",
     "nanoid": "^5.0.9",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "y-indexeddb": "^9.0.12",
+    "y-websocket": "^3.1.0",
     "yjs": "^13.6.20"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.64.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.49.0",
     "@testing-library/react": "^16.1.0",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
@@ -34,6 +41,7 @@
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.71.2",
     "vite": "^6.0.3",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "wrangler": "^4.151.0"
   }
 }

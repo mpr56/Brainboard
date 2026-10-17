@@ -92,6 +92,7 @@ describe('effectiveOptions', () => {
 describe('exportFileName', () => {
   it('names the file after the board and the day', () => {
     expect(exportFileName('My board', 'jpeg', new Date('2026-10-10T12:00:00Z'))).toBe('My-board-2026-10-10.jpg')
+    expect(exportFileName('My board', 'board', new Date('2026-10-10T12:00:00Z'))).toBe('My-board-2026-10-10.brainboard.json')
     expect(exportFileName('', 'pdf', new Date('2026-10-10T12:00:00Z'))).toBe('board-2026-10-10.pdf')
   })
 })

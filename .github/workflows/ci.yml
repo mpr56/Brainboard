@@ -91,12 +91,33 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  # The Cloudflare Worker in worker/ is its own package (vitest 4, workerd).
+  worker:
+    name: Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            worker/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+
   # The single check branch protection requires. Listing it alone keeps the
   # ruleset valid when jobs above are added, renamed or split.
   ci:
     name: CI passed
     if: always()
-    needs: [lint, typecheck, test, build, e2e]
+    needs: [lint, typecheck, test, build, e2e, worker]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

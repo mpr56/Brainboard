@@ -12,6 +12,8 @@ type Props = {
   /** How many nodes are selected; the "Selection" scope is offered only when some are. */
   selectionSize: number
   onExport: (options: ExportOptions) => Promise<void>
+  /** Downloads the whole board as a file that can be imported again. Offered only when given. */
+  onExportFile?: () => Promise<void>
   onClose: () => void
 }
 
@@ -86,13 +88,26 @@ function Choice<T extends string | number>(props: {
 }
 
 /** Export settings: format, background, paper pattern, resolution, and what to include. */
-export function ExportDialog({ initial, selectionSize, onExport, onClose }: Props) {
+export function ExportDialog({ initial, selectionSize, onExport, onExportFile, onClose }: Props) {
   const [o, setO] = useState<ExportOptions>(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const set = <K extends keyof ExportOptions>(k: K, v: ExportOptions[K]) => setO((prev) => ({ ...prev, [k]: v }))
   const transparentOk = supportsTransparency(o.format)
   const background = o.background === 'transparent' && !transparentOk ? 'white' : o.background
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await fn()
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <div
@@ -192,18 +207,7 @@ export function ExportDialog({ initial, selectionSize, onExport, onClose }: Prop
         type="button"
         data-testid="export-go"
         disabled={busy}
-        onClick={async () => {
-          setBusy(true)
-          setError(null)
-          try {
-            await onExport({ ...o, background })
-            onClose()
-          } catch (err) {
-            setError(err instanceof Error ? err.message : String(err))
-          } finally {
-            setBusy(false)
-          }
-        }}
+        onClick={() => void run(() => onExport({ ...o, background }))}
         style={{
           font: '600 13px system-ui, sans-serif',
           padding: '9px 12px',
@@ -216,6 +220,34 @@ export function ExportDialog({ initial, selectionSize, onExport, onClose }: Prop
       >
         {busy ? 'Exporting…' : `Download ${o.format === 'jpeg' ? 'JPEG' : o.format.toUpperCase()}`}
       </button>
+
+      {onExportFile && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 12, borderTop: '2px dashed #d6d2c7' }}>
+          <span style={{ font: '600 11px system-ui, sans-serif', color: '#6b675e', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+            Board file
+          </span>
+          <span style={{ font: '500 12px system-ui, sans-serif', color: '#6b675e' }}>
+            The whole board and its media, to import from the home screen.
+          </span>
+          <button
+            type="button"
+            data-testid="export-board-file"
+            disabled={busy}
+            onClick={() => void run(onExportFile)}
+            style={{
+              font: '600 13px system-ui, sans-serif',
+              padding: '8px 12px',
+              borderRadius: 7,
+              border: '2px solid #1a1a1a',
+              background: '#fdfcf9',
+              color: '#1a1a1a',
+              cursor: busy ? 'wait' : 'pointer',
+            }}
+          >
+            Download board file (.json)
+          </button>
+        </div>
+      )}
     </div>
   )
 }

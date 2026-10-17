@@ -1,0 +1,25 @@
+{
+  "name": "brainboard-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types --env-file .dev.vars.example",
+    "typecheck": "npm run types && tsc --noEmit",
+    "test": "vitest run",
+    "migrate:local": "wrangler d1 migrations apply brainboard --local",
+    "migrate:remote": "wrangler d1 migrations apply brainboard --remote"
+  },
+  "dependencies": {
+    "better-auth": "1.7.7",
+    "nanoid": "^5.0.9",
+    "partyserver": "0.5.10",
+    "y-partyserver": "2.2.0",
+    "yjs": "^13.6.20"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.0",
+    "wrangler": "4.151.0"
+  }
+}

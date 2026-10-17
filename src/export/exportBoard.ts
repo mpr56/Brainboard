@@ -1,5 +1,7 @@
-import { assetUrl } from '../document/assets'
+import type * as Y from 'yjs'
+import { assetUrl, getAssetBlob } from '../document/assets'
 import type { AssetId } from '../types'
+import { serializeBoard } from './boardFile'
 import { drawScene, type Scene } from './draw'
 import { clampScale, effectiveOptions, exportFrame, exportFileName, type ExportOptions } from './layout'
 import { PX_TO_PT, jpegToPdf } from './pdf'
@@ -7,7 +9,7 @@ import { PX_TO_PT, jpegToPdf } from './pdf'
 type Picture = CanvasImageSource & { width: number; height: number }
 
 /** Decodes every image node's picture, skipping any whose file is missing. */
-async function loadImages(scene: Omit<Scene, 'images'>): Promise<Map<AssetId, Picture>> {
+export async function loadImages(scene: Omit<Scene, 'images'>): Promise<Map<AssetId, Picture>> {
   const out = new Map<AssetId, Picture>()
   await Promise.all(
     scene.nodes
@@ -28,7 +30,7 @@ async function loadImages(scene: Omit<Scene, 'images'>): Promise<Map<AssetId, Pi
   return out
 }
 
-const toBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) =>
+export const toBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) =>
   new Promise<Blob>((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('The browser could not encode the image.'))), type, quality),
   )
@@ -84,4 +86,13 @@ export async function exportBoard(
     { w: frame.w * PX_TO_PT, h: frame.h * PX_TO_PT },
   )
   download(new Blob([pdf], { type: 'application/pdf' }), name)
+}
+
+/**
+ * Downloads the whole board as a board file (see boardFile.ts): everything in
+ * it, media included, to be imported from the home screen later.
+ */
+export async function exportBoardFile(doc: Y.Doc, title: string): Promise<void> {
+  const file = await serializeBoard(doc, title, getAssetBlob)
+  download(new Blob([JSON.stringify(file)], { type: 'application/json' }), exportFileName(title, 'board'))
 }
