@@ -37,7 +37,7 @@ jobs:
         with:
           # Deploy the commit CI approved, not whatever main has moved on to.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
