@@ -16,6 +16,8 @@ type Props = {
   onStartFromFiles: (files: File[], folder: string | null) => void
   onRename: (id: BoardId, title: string) => void
   onDelete: (id: BoardId) => void
+  /** Makes a board from an exported board file; rejects with a message to show if it can't. */
+  onImportFile?: (file: File) => Promise<void>
   estimateStorage?: () => Promise<{ usage: number; quota: number } | null>
   /** Shown at the foot of the sidebar: sign-in, or who is signed in. */
   accountSlot?: React.ReactNode
@@ -51,10 +53,26 @@ export function Home({
   onStartFromFiles,
   onRename,
   onDelete,
+  onImportFile,
   estimateStorage = defaultEstimate,
   accountSlot,
 }: Props) {
   const [query, setQuery] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
+  const importInput = useRef<HTMLInputElement>(null)
+  const importFile = async (file: File) => {
+    if (!onImportFile) return
+    setImporting(true)
+    setImportError(null)
+    try {
+      await onImportFile(file)
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setImporting(false)
+    }
+  }
   const [previews, setPreviews] = useState<Map<BoardId, Shown>>(new Map())
   const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null)
 
@@ -193,7 +211,46 @@ export function Home({
           >
             + New board
           </button>
+          {onImportFile && (
+            <>
+              <button
+                data-testid="home-import"
+                disabled={importing}
+                title="Import a board file exported from a board"
+                onClick={() => importInput.current?.click()}
+                style={{
+                  height: 40,
+                  padding: '0 16px',
+                  border: `2px solid ${ink}`,
+                  borderRadius: 10,
+                  background: paper,
+                  color: ink,
+                  font: font(600, 13),
+                  cursor: importing ? 'wait' : 'pointer',
+                }}
+              >
+                {importing ? 'Importing…' : 'Import'}
+              </button>
+              <input
+                ref={importInput}
+                data-testid="home-import-input"
+                type="file"
+                accept=".json,application/json"
+                hidden
+                onChange={(e) => {
+                  const file = e.currentTarget.files?.[0]
+                  e.currentTarget.value = ''
+                  if (file) void importFile(file)
+                }}
+              />
+            </>
+          )}
         </div>
+        {importError && (
+          <p role="alert" data-testid="home-import-error" style={{ margin: '0 0 16px', font: font(500, 14), color: '#c0392b' }}>
+            Couldn&apos;t import that file: {importError}
+          </p>
+        )}
 
         {boards.length === 0 && (
           <p style={{ margin: '0 0 16px', font: font(500, 14), color: muted }}>No boards yet — start one, or drop some files below.</p>

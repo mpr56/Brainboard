@@ -121,4 +121,24 @@ describe('Home', () => {
     await act(async () => {})
     expect(screen.getByTestId('storage').textContent).toContain('4.2 GB of 20 GB')
   })
+
+  it('imports a chosen board file', async () => {
+    const onImportFile = vi.fn().mockResolvedValue(undefined)
+    home({ onImportFile })
+    const file = new File(['{}'], 'plans.brainboard.json', { type: 'application/json' })
+    fireEvent.change(screen.getByTestId('home-import-input'), { target: { files: [file] } })
+    await waitFor(() => expect(onImportFile).toHaveBeenCalledWith(file))
+    expect(screen.queryByTestId('home-import-error')).toBeNull()
+  })
+
+  it('says why a board file could not be imported', async () => {
+    home({ onImportFile: vi.fn().mockRejectedValue(new Error('That file is not a board file.')) })
+    fireEvent.change(screen.getByTestId('home-import-input'), { target: { files: [new File(['x'], 'x.json')] } })
+    expect((await screen.findByTestId('home-import-error')).textContent).toContain('not a board file')
+  })
+
+  it('offers no import without a way to import', () => {
+    home()
+    expect(screen.queryByTestId('home-import')).toBeNull()
+  })
 })
