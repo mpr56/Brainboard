@@ -3,7 +3,7 @@ import type { BoardId, BoardPreview, BoardRecord } from '../account/types'
 import { droppedFiles } from '../media/dropped'
 import { MEDIA_ACCEPT } from '../media/ingest'
 import { routeHash } from '../route'
-import { formatBytes, timeAgo } from './format'
+import { timeAgo } from './format'
 import { TitleInput } from './TitleInput'
 
 type Props = {
@@ -18,7 +18,6 @@ type Props = {
   onDelete: (id: BoardId) => void
   /** Makes a board from an exported board file; rejects with a message to show if it can't. */
   onImportFile?: (file: File) => Promise<void>
-  estimateStorage?: () => Promise<{ usage: number; quota: number } | null>
   /** Shown at the foot of the sidebar: sign-in, or who is signed in. */
   accountSlot?: React.ReactNode
 }
@@ -32,11 +31,6 @@ const font = (weight: number, size: number) => `${weight} ${size}px system-ui, s
 
 /** What the sidebar will hold; only "My boards" exists yet. */
 const SOON = ['Shared with me', 'Templates', 'Media library', 'Archive']
-
-const defaultEstimate = async () => {
-  const e = await navigator.storage?.estimate?.()
-  return e && e.usage !== undefined && e.quota ? { usage: e.usage, quota: e.quota } : null
-}
 
 type Shown = { key: number; url: string | null; nodes: number; media: number }
 
@@ -54,7 +48,6 @@ export function Home({
   onRename,
   onDelete,
   onImportFile,
-  estimateStorage = defaultEstimate,
   accountSlot,
 }: Props) {
   const [query, setQuery] = useState('')
@@ -74,7 +67,6 @@ export function Home({
     }
   }
   const [previews, setPreviews] = useState<Map<BoardId, Shown>>(new Map())
-  const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null)
 
   const sorted = useMemo(() => [...boards].sort((a, b) => b.openedAt - a.openedAt), [boards])
   const q = query.trim().toLowerCase()
@@ -118,14 +110,6 @@ export function Home({
     [],
   )
 
-  useEffect(() => {
-    let alive = true
-    estimateStorage().then((e) => alive && setStorage(e), () => {})
-    return () => {
-      alive = false
-    }
-  }, [estimateStorage])
-
   return (
     <div data-testid="home" style={{ position: 'fixed', inset: 0, display: 'flex', background: paper, color: ink }}>
       <nav
@@ -159,17 +143,6 @@ export function Home({
             <span style={{ font: font(600, 10), letterSpacing: '0.04em', textTransform: 'uppercase', color: '#b9b5ab' }}>soon</span>
           </div>
         ))}
-        {/* {storage && (
-          <div
-            data-testid="storage"
-            style={{ marginTop: 'auto', padding: 10, border: '2px dashed #b9b5ab', borderRadius: 8, font: font(500, 12), color: muted }}
-          >
-            {formatBytes(storage.usage)} of {formatBytes(storage.quota)}
-            <div style={{ height: 8, marginTop: 7, border: `2px solid ${ink}`, borderRadius: 5, background: '#fff', overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${Math.min(100, Math.max(1, (storage.usage / storage.quota) * 100))}%`, background: ink }} />
-            </div>
-          </div>
-        )} */}
         {accountSlot && <div style={{ marginTop: 'auto' }}>{accountSlot}</div>}
       </nav>
 

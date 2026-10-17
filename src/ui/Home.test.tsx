@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BoardPreview, BoardRecord } from '../account/types'
 import { Home } from './Home'
@@ -13,7 +13,6 @@ const home = (over: Partial<React.ComponentProps<typeof Home>> = {}) => {
     onStartFromFiles: vi.fn(),
     onRename: vi.fn(),
     onDelete: vi.fn(),
-    estimateStorage: vi.fn().mockResolvedValue(null),
     ...over,
   }
   const view = render(<Home {...props} />)
@@ -114,12 +113,6 @@ describe('Home', () => {
     home({ boards: [] })
     expect(screen.getByText(/No boards yet/)).toBeTruthy()
     expect(screen.getByTestId('home-drop')).toBeTruthy()
-  })
-
-  it('shows how much storage is used', async () => {
-    home({ estimateStorage: vi.fn().mockResolvedValue({ usage: 4.2 * 1024 ** 3, quota: 20 * 1024 ** 3 }) })
-    await act(async () => {})
-    expect(screen.getByTestId('storage').textContent).toContain('4.2 GB of 20 GB')
   })
 
   it('imports a chosen board file', async () => {
