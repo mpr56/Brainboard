@@ -33,7 +33,7 @@ jobs:
     environment:
       name: production
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # Deploy the commit CI approved, not whatever main has moved on to.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
