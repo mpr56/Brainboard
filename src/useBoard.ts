@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type * as Y from 'yjs'
-import { createDoc } from './document/schema'
+import { createDoc, seedMeta } from './document/schema'
 import { createDocStore, type DocStore } from './document/store'
 import { createUndoManager } from './document/undo'
 import { persistDoc, type SyncStatus } from './document/persistence'
@@ -39,7 +39,7 @@ const EMPTY_STORE: DocStore = {
  * function each render would reload the board each render.
  */
 export function useBoard(boardId: string, persist: typeof persistDoc = persistDoc): Board {
-  const doc = useMemo(() => createDoc(), [boardId])
+  const doc = useMemo(() => createDoc(false), [boardId])
   const undo = useMemo(() => createUndoManager(doc), [doc])
 
   const [store, setStore] = useState<DocStore>(EMPTY_STORE)
@@ -103,6 +103,7 @@ export function useBoard(boardId: string, persist: typeof persistDoc = persistDo
       if (settled || !alive) return
       settled = true
       if (timeoutId !== null) clearTimeout(timeoutId)
+      seedMeta(doc)
       setReady(true)
     }, onFailure)
 

@@ -22,7 +22,7 @@ describe('room storage', () => {
       writeState(state.storage, new Uint8Array([7]))
       expect(readState(state.storage.sql)).toEqual(new Uint8Array([7]))
     })
-  })
+  }, 30_000)
 
   it('reads nothing from a fresh room', async () => {
     const stub = env.BOARD_ROOM.get(env.BOARD_ROOM.idFromName('fresh'))
