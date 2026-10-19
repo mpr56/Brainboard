@@ -4,8 +4,19 @@ export type Origin = 'user' | 'system'
 
 export const SCHEMA_VERSION = 1
 
-export function createDoc(): Y.Doc {
+/**
+ * `seed: false` leaves the document empty, for one about to load saved state:
+ * defaults written first would conflict with the saved values of the same
+ * keys, and Yjs settles that by client id, so either side could win.
+ */
+export function createDoc(seed = true): Y.Doc {
   const doc = new Y.Doc()
+  if (seed) seedMeta(doc)
+  return doc
+}
+
+/** Gives a document that has none the board's default settings. */
+export function seedMeta(doc: Y.Doc): void {
   const meta = metaMap(doc)
   if (!meta.has('schemaVersion')) {
     doc.transact(() => {
@@ -14,7 +25,6 @@ export function createDoc(): Y.Doc {
       meta.set('title', 'Untitled board')
     }, 'system' satisfies Origin)
   }
-  return doc
 }
 
 export const metaMap = (doc: Y.Doc) => doc.getMap<unknown>('meta')
